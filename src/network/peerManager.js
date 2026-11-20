@@ -333,6 +333,11 @@ export class PeerNetworkManager {
         if (this.isHost) this.broadcast(data, senderPeerId);
         break;
 
+      case 'cabin_door_toggle':
+        if (this.onCabinDoorToggled) this.onCabinDoorToggled(data.isOpen);
+        if (this.isHost) this.broadcast(data, senderPeerId);
+        break;
+
       case 'party_game_sync':
         if (this.onPartyGameSync) this.onPartyGameSync(data.payload);
         if (this.isHost) this.broadcast(data, senderPeerId);

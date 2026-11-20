@@ -226,6 +226,12 @@ export class HudUI {
           </div>
         </div>
 
+        <!-- Desktop PC Camera Hint -->
+        <div id="camera-hint-pill" class="camera-hint-pill">
+          <span class="camera-hint-icon">🖱️</span>
+          <span id="camera-hint-text">Click screen to look around with mouse/trackpad • ESC to unlock cursor</span>
+        </div>
+
         <!-- Toast Notifications Container -->
         <div id="hud-toasts" class="hud-toasts"></div>
       </div>
@@ -233,6 +239,23 @@ export class HudUI {
   }
 
   bindEvents() {
+    // PC Pointer Lock HUD hint listener
+    const cameraHintPill = this.container.querySelector('#camera-hint-pill');
+    const cameraHintText = this.container.querySelector('#camera-hint-text');
+
+    if (this.player) {
+      this.player.onPointerLockChange = (isLocked) => {
+        if (!cameraHintPill || !cameraHintText) return;
+        if (isLocked) {
+          cameraHintPill.classList.add('locked');
+          cameraHintText.textContent = '🟢 Look Active (Move mouse/trackpad) • ESC to unlock cursor';
+        } else {
+          cameraHintPill.classList.remove('locked');
+          cameraHintText.textContent = 'Click screen to look around with mouse/trackpad • ESC to unlock cursor';
+        }
+      };
+    }
+
     // Top Bar Mic Toggle
     const micBtn = this.container.querySelector('#btn-mic-toggle');
     micBtn.addEventListener('click', () => {

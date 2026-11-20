@@ -17,24 +17,39 @@ A cozy, low-poly 3D multiplayer browser camping game for up to 5 friends built w
 - **WebRTC Voice Chat (Mic)**: Campers talk live with friends over microphones in crystal-clear P2P audio. Includes on-screen **Mic Toggle** and dynamic speaking indicator bubbles above players' heads.
 
 ### 2. 3D Campsite World & Day/Night Cycle
+- **Spacious Wooden Log Cabin House**:
+  - Replaces canvas tents with a cozy low-poly log cabin sitting firmly on the terrain near the campsite clearing.
+  - Features stone foundation, warm glowing windows that illuminate softly at night, a pitched wooden gable roof, and a front porch with steps and railings.
+  - Cozy interior with rustic furniture: red braided rug, dining table with benches, stone fireplace hearth with glowing embers, sleeping bunk, and interior ceiling lantern.
+  - **Functional Hinged Front Door**: Press [E] on PC or the mobile Interact button to smoothly swing the door open/closed with audio creak effects. Door state syncs in real time across all players via PeerJS, allowing campers to enter and hang out inside!
+  - Solid wall obstacle colliders prevent walking through cabin walls, with dynamic doorway collision that clears when the door is opened.
 - **Central Campfire Clearing**: Ring of granite stones, wood stack, animated flickering flame meshes, floating ember particles, and cozy sitting logs.
 - **Scenic Mountain Hiking Trail**: Winding switchback trail with wooden markers leading up to **Eagle Peak** (lookout deck, summit bench, telescope, and pennant flag).
 - **Choppable Pine Forest**: 30+ low-poly coniferous pine trees with trunk health, wobble physics, wood-chip particles, and falling firewood logs.
-- **Lake Area**: Low-poly water with gentle wave motion, shoreline reeds, and a wooden fishing dock/pier.
+- **Solid Fishing Pier & Animated Swimming Fish**:
+  - Solid wooden fishing dock extending into the lake with walkable planks that campers can walk onto and fish from without falling through.
+  - **12–15 Animated Swimming Fish**: Colorful low-poly fish swimming gracefully below the water surface with wiggling tail fins, wandering along curved paths, confined within lake boundaries, reacting to fishing lines, and startling away from swimming players.
+- **Realistic Lake Sinking & Swimming Physics**:
+  - Stepping or diving into the lake water submerges the character down to chest/neck level (`waterY - 0.78`) with water bobbing and breaststroke swimming animations, rather than walking unrealistically on top of the water.
 - **Smooth 16-Minute Day-to-Night Lighting Cycle**:
   - **10-Minute Daytime (600s)**: Bright sunny skies, warm atmospheric mountain colors, clear visibility, and crisp directional sunlight.
-  - **6-Minute Nighttime (360s)**: Seamless transition to a true dark starry night with a deep navy-black sky, 700+ twinkling stars, dimmed cool moonlight, and warm glowing campfire and lantern lights.
+  - **6-Minute Nighttime (360s)**: Seamless transition to a true dark starry night with a deep navy-black sky, 700+ twinkling stars, dimmed cool moonlight, and warm glowing campfire, lantern, and cabin window lights.
   - **Synchronized HUD Clock**: Automatically stays in sync with the 16-minute day/night cycle.
-- **Exact Terrain Surface Snapping**: Zero floating gap—character feet sit firmly on the ground surface using terrain mesh raycasting, and trees, rocks, campfire logs, and tents sit completely flush with the terrain.
+- **Exact Surface Snapping**: Zero floating gap—character feet sit firmly on the ground surface, solid dock planks, and cabin floors using multi-mesh downward raycasting.
 
-### 3. Full 360° Free-Orbit Camera & Controls
-- **PC Controls**:
-  - Click & Drag anywhere on canvas (or pointer lock): Smooth **360° free orbit camera** with clamped vertical pitch and ground anti-clipping.
-  - Mouse Scroll Wheel: Smooth camera zoom in/out.
-  - `W`, `A`, `S`, `D` / Arrows: Move character relative to camera orientation.
-  - `Shift`: Sprint
-  - `Space`: Jump / Stand up
-  - `E`: Contextual interaction (Chop, Fish, Pick up log, Add firewood, Sit)
+### 3. PC Mouse & Trackpad 360° Camera Orbit Controls
+- **PC Pointer Lock (No-Click Mouse & Trackpad Look)**:
+  - Clicking anywhere on the 3D game canvas activates **Pointer Lock** (`requestPointerLock()`), allowing natural 360° camera look (yaw and pitch) simply by moving the mouse or sliding one finger on a laptop trackpad without holding down any mouse button.
+  - Pressing `ESC` unlocks the cursor normally to click HUD buttons, view cards, or type in chat. Clicking back on the 3D canvas re-locks the cursor.
+  - Traditional click-and-drag camera orbiting remains fully supported as a fallback.
+- **Laptop Trackpad Two-Finger Gestures & Wheel Zoom**:
+  - Two-finger horizontal swipe on laptop trackpads (`wheel` event `deltaX`) smoothly rotates the camera horizontally.
+  - Vertical two-finger scroll (`deltaY`) or mouse wheel smoothly zooms the camera in and out.
+- **Laptop Keyboard Look Orbit Fallback**:
+  - Left / Right / Up / Down Arrow keys (or `I`, `J`, `K`, `L`) smoothly orbit the camera horizontally and vertically, allowing complete keyboard-only exploration without needing a mouse.
+  - `W`, `A`, `S`, `D`: Move character relative to camera orientation.
+  - `Shift`: Sprint | `Space`: Jump / Stand up / Splash | `E`: Contextual interact.
+- **Clean On-Screen HUD Hint**: Subtle HUD indicator informing PC players: `🖱️ Click screen to look around with mouse/trackpad • ESC to unlock cursor`.
 - **Mobile Touch Controls**:
   - Drag one finger on the right side of the screen to smoothly rotate the camera 360 degrees.
   - Virtual Joystick on the bottom-left with draggable thumb knob.
@@ -100,7 +115,8 @@ campfire/
 │   ├── network/
 │   │   └── peerManager.js      # PeerJS P2P data & WebRTC voice connection manager
 │   ├── world/
-│   │   ├── campsite.js         # Procedural terrain, lake, campfire, hiking trail, forest
+│   │   ├── campsite.js         # Procedural terrain, lake, solid dock, log cabin, campfire, hiking trail, forest
+│   │   ├── lakeFish.js         # 14 animated swimming lake fish with wiggling tail fins & behavioral reactions
 │   │   └── dayNightCycle.js    # Sun/moon lighting, sky colors, fog, and star dome
 │   ├── player/
 │   │   ├── characterModel.js   # 4 camper presets, low-poly body parts, nametags, animations

@@ -1,11 +1,13 @@
 import * as THREE from 'three';
 import { soundFX } from '../utils/soundFX.js';
+import { LakeFishSchool } from './lakeFish.js';
 
 export class CampsiteWorld {
   constructor(scene) {
     this.scene = scene;
     this.colliders = []; // objects with radius / bounding box for collision
-    this.interactables = []; // trees, logs, campfire, fishing dock, sit logs
+    this.interactables = []; // trees, logs, campfire, fishing dock, sit logs, cabin door
+    this.walkableObjects = []; // terrain, dock planks, cabin floor, porch, steps
     this.trees = [];
     this.droppedLogs = [];
     this.campfireLevel = 1.0; // 0.5 to 2.5 (fed with firewood)
@@ -15,11 +17,23 @@ export class CampsiteWorld {
     this.waterTime = 0;
     this.waterLevel = -0.1; // y elevation of lake surface
 
+    // Cabin House properties
+    this.cabinDoorHinge = null;
+    this.cabinDoorOpen = false;
+    this.cabinDoorAngle = 0;
+    this.cabinDoorTargetAngle = 0;
+    this.doorCollider = null;
+    this.cabinDoorInteractable = null;
+    this.cabinWindowMat = null;
+    this.cabinInteriorLight = null;
+    this.chimneySmoke = null;
+    this.smokePuffs = [];
+
     // Campfire position
     const campY = this.getTerrainHeight(0, 0);
     this.campfirePos = new THREE.Vector3(0, campY, 0);
 
-    // Downward terrain surface raycaster for exact ground snapping
+    // Downward terrain & surface raycaster for exact ground/dock/floor snapping
     this.downRay = new THREE.Raycaster();
     this.rayOrigin = new THREE.Vector3();
     this.downDir = new THREE.Vector3(0, -1, 0);
@@ -30,14 +44,17 @@ export class CampsiteWorld {
     this.buildMountainPeakAndTrail();
     this.buildForest();
     this.buildScenicDecorations();
+
+    // Animated swimming fish school in alpine lake
+    this.fishSchool = new LakeFishSchool(this.scene);
   }
 
-  // Exact terrain surface height at (x, z) using terrain mesh raycasting with mathematical fallback
+  // Exact surface height at (x, z) using walkable meshes (terrain, solid dock, cabin floor/porch)
   getGroundHeight(x, z) {
-    if (this.terrainMesh) {
+    if (this.walkableObjects && this.walkableObjects.length > 0) {
       this.rayOrigin.set(x, 40, z);
       this.downRay.set(this.rayOrigin, this.downDir);
-      const hits = this.downRay.intersectObject(this.terrainMesh, false);
+      const hits = this.downRay.intersectObjects(this.walkableObjects, true);
       if (hits.length > 0) {
         return hits[0].point.y;
       }
@@ -168,6 +185,7 @@ export class CampsiteWorld {
     this.terrainMesh = new THREE.Mesh(geo, mat);
     this.terrainMesh.receiveShadow = true;
     this.scene.add(this.terrainMesh);
+    this.walkableObjects.push(this.terrainMesh);
   }
 
   buildLake() {
@@ -194,6 +212,10 @@ export class CampsiteWorld {
     const dockPlanks = new THREE.Mesh(plankGeo, woodMat);
     dockPlanks.castShadow = true;
     dockGroup.add(dockPlanks);
+
+    // Make dock planks solidly walkable
+    dockGroup.updateMatrixWorld(true);
+    this.walkableObjects.push(dockPlanks);
 
     // Dock support stilts / posts
     const stiltGeo = new THREE.CylinderGeometry(0.12, 0.12, 2.8, 6);
@@ -426,54 +448,409 @@ export class CampsiteWorld {
       });
     });
 
-    // 8. Cozy Camping Tents in the clearing
-    this.createTent(-6.5, 0, -4.5, 0.4, 0xf97316); // Orange tent
-    this.createTent(6.2, 0, -5.2, -0.6, 0x0284c7); // Blue tent
-    this.createTent(-5.8, 0, 5.5, 2.2, 0x10b981);  // Green tent
+    // 8. Spacious Low-Poly Wooden Log Cabin House
+    this.buildLogCabin();
   }
 
-  createTent(x, y, z, rotationY, colorHex) {
-    const tentGroup = new THREE.Group();
-    const groundY = this.getGroundHeight(x, z);
-    tentGroup.position.set(x, groundY, z);
-    tentGroup.rotation.y = rotationY;
+  buildLogCabin() {
+    const cabinX = -9.2;
+    const cabinZ = -6.8;
+    const groundY = this.getTerrainHeight(cabinX, cabinZ);
+    const cabinAngle = Math.PI * 0.22; // angled towards the campfire clearing
 
-    // A-frame canvas tent geometry with skirt extending slightly below ground level
-    const tentGeo = new THREE.ConeGeometry(2.2, 2.5, 4);
-    tentGeo.rotateY(Math.PI / 4);
-    tentGeo.translate(0, 1.05, 0); // extends -0.2m into ground so no gap on slopes
-    const tentMat = new THREE.MeshLambertMaterial({ color: colorHex, flatShading: true });
-    const tent = new THREE.Mesh(tentGeo, tentMat);
-    tent.castShadow = true;
-    tentGroup.add(tent);
+    this.cabinGroup = new THREE.Group();
+    this.cabinGroup.position.set(cabinX, groundY, cabinZ);
+    this.cabinGroup.rotation.y = cabinAngle;
 
-    // Tent door entrance flap (dark interior)
-    const doorGeo = new THREE.PlaneGeometry(1.2, 1.5);
-    const doorMat = new THREE.MeshBasicMaterial({ color: 0x111827 });
-    const door = new THREE.Mesh(doorGeo, doorMat);
-    door.position.set(0, 0.75, 1.1);
-    tentGroup.add(door);
+    // Palette & Materials
+    const stoneMat = new THREE.MeshLambertMaterial({ color: 0x475569, flatShading: true });
+    const floorWoodMat = new THREE.MeshLambertMaterial({ color: 0x854d0e, flatShading: true });
+    const porchWoodMat = new THREE.MeshLambertMaterial({ color: 0x713f12, flatShading: true });
+    const logWallMat = new THREE.MeshLambertMaterial({ color: 0x5a341e, flatShading: true });
+    const logBeamMat = new THREE.MeshLambertMaterial({ color: 0x3d2314, flatShading: true });
+    const roofMat = new THREE.MeshLambertMaterial({ color: 0x2b1810, flatShading: true });
+    const doorPlankMat = new THREE.MeshLambertMaterial({ color: 0x542b14, flatShading: true });
+    const brassMat = new THREE.MeshLambertMaterial({ color: 0xd97706, flatShading: true });
+    const furnitureWoodMat = new THREE.MeshLambertMaterial({ color: 0x9a5b28, flatShading: true });
 
-    // Lantern beside tent entrance
-    const lantern = this.createLantern();
-    lantern.position.set(1.4, 0.3, 1.0);
-    tentGroup.add(lantern);
-
-    // Sleeping mat inside
-    const matGeo = new THREE.BoxGeometry(1.2, 0.08, 2.0);
-    const matMat = new THREE.MeshLambertMaterial({ color: 0x334155 });
-    const sleepMat = new THREE.Mesh(matGeo, matMat);
-    sleepMat.position.set(0, 0.04, 0);
-    tentGroup.add(sleepMat);
-
-    this.scene.add(tentGroup);
-
-    // Collider for tent so players don't walk through it
-    this.colliders.push({
-      x,
-      z,
-      radius: 1.8
+    // Cozy Glowing Glass Material (lights up softly at night)
+    this.cabinWindowMat = new THREE.MeshLambertMaterial({
+      color: 0xffe082,
+      emissive: 0xff9800,
+      emissiveIntensity: 0.65,
+      transparent: true,
+      opacity: 0.88,
+      flatShading: true
     });
+
+    // 1. Solid Stone Foundation (sunk flush into the uneven terrain)
+    const foundationGeo = new THREE.BoxGeometry(8.2, 0.75, 8.4);
+    const foundation = new THREE.Mesh(foundationGeo, stoneMat);
+    foundation.position.set(0, -0.22, 0.4);
+    foundation.receiveShadow = true;
+    this.cabinGroup.add(foundation);
+
+    // 2. Interior Wooden Floor (Solid & Walkable)
+    const floorGeo = new THREE.BoxGeometry(7.6, 0.16, 5.8);
+    const floorMesh = new THREE.Mesh(floorGeo, floorWoodMat);
+    floorMesh.position.set(0, 0.16, -0.6);
+    floorMesh.receiveShadow = true;
+    this.cabinGroup.add(floorMesh);
+
+    // 3. Front Porch (Solid & Walkable)
+    const porchGeo = new THREE.BoxGeometry(7.6, 0.16, 2.4);
+    const porchMesh = new THREE.Mesh(porchGeo, porchWoodMat);
+    porchMesh.position.set(0, 0.16, 3.5);
+    porchMesh.receiveShadow = true;
+    this.cabinGroup.add(porchMesh);
+
+    // Porch Steps (Solid & Walkable)
+    const step1 = new THREE.Mesh(new THREE.BoxGeometry(3.0, 0.12, 0.6), porchWoodMat);
+    step1.position.set(0, 0.08, 4.95);
+    const step2 = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.12, 0.6), porchWoodMat);
+    step2.position.set(0, 0.02, 5.5);
+    this.cabinGroup.add(step1, step2);
+
+    // 4. Porch Pillars & Railings
+    const pillarGeo = new THREE.CylinderGeometry(0.12, 0.12, 3.0, 6);
+    [-3.5, 0, 3.5].forEach(px => {
+      const pillar = new THREE.Mesh(pillarGeo, logBeamMat);
+      pillar.position.set(px, 1.6, 4.6);
+      this.cabinGroup.add(pillar);
+    });
+
+    // Top Porch Lintel Beam
+    const porchBeam = new THREE.Mesh(new THREE.BoxGeometry(7.6, 0.22, 0.24), logBeamMat);
+    porchBeam.position.set(0, 3.1, 4.6);
+    this.cabinGroup.add(porchBeam);
+
+    // Side Railings
+    [-3.7, 3.7].forEach(rx => {
+      const rail = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.9, 2.2), porchWoodMat);
+      rail.position.set(rx, 0.68, 3.5);
+      this.cabinGroup.add(rail);
+    });
+
+    // Porch Hanging Lantern
+    const porchLantern = this.createLantern();
+    porchLantern.position.set(1.2, 2.7, 4.5);
+    this.cabinGroup.add(porchLantern);
+
+    // 5. Solid Log Walls (3.0 units high)
+    const cornerPostGeo = new THREE.CylinderGeometry(0.2, 0.2, 3.2, 6);
+    [[-3.7, -3.4], [3.7, -3.4], [-3.7, 2.3], [3.7, 2.3]].forEach(([cx, cz]) => {
+      const cPost = new THREE.Mesh(cornerPostGeo, logBeamMat);
+      cPost.position.set(cx, 1.66, cz);
+      this.cabinGroup.add(cPost);
+    });
+
+    // Back Solid Log Wall
+    const backWall = new THREE.Mesh(new THREE.BoxGeometry(7.6, 3.0, 0.36), logWallMat);
+    backWall.position.set(0, 1.66, -3.4);
+    backWall.castShadow = true;
+    this.cabinGroup.add(backWall);
+
+    // Left Wall with glowing window
+    const leftWallBottom = new THREE.Mesh(new THREE.BoxGeometry(0.36, 1.1, 5.8), logWallMat);
+    leftWallBottom.position.set(-3.7, 0.71, -0.55);
+    const leftWallTop = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.8, 5.8), logWallMat);
+    leftWallTop.position.set(-3.7, 2.76, -0.55);
+    const leftWallPost1 = new THREE.Mesh(new THREE.BoxGeometry(0.36, 1.2, 2.1), logWallMat);
+    leftWallPost1.position.set(-3.7, 1.76, -2.4);
+    const leftWallPost2 = new THREE.Mesh(new THREE.BoxGeometry(0.36, 1.2, 2.1), logWallMat);
+    leftWallPost2.position.set(-3.7, 1.76, 1.3);
+    this.cabinGroup.add(leftWallBottom, leftWallTop, leftWallPost1, leftWallPost2);
+
+    // Left Window Glass
+    const leftGlass = new THREE.Mesh(new THREE.BoxGeometry(0.12, 1.1, 1.6), this.cabinWindowMat);
+    leftGlass.position.set(-3.7, 1.76, -0.55);
+    this.cabinGroup.add(leftGlass);
+
+    // Right Wall with glowing window
+    const rightWallBottom = new THREE.Mesh(new THREE.BoxGeometry(0.36, 1.1, 5.8), logWallMat);
+    rightWallBottom.position.set(3.7, 0.71, -0.55);
+    const rightWallTop = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.8, 5.8), logWallMat);
+    rightWallTop.position.set(3.7, 2.76, -0.55);
+    const rightWallPost1 = new THREE.Mesh(new THREE.BoxGeometry(0.36, 1.2, 2.1), logWallMat);
+    rightWallPost1.position.set(3.7, 1.76, -2.4);
+    const rightWallPost2 = new THREE.Mesh(new THREE.BoxGeometry(0.36, 1.2, 2.1), logWallMat);
+    rightWallPost2.position.set(3.7, 1.76, 1.3);
+    this.cabinGroup.add(rightWallBottom, rightWallTop, rightWallPost1, rightWallPost2);
+
+    // Right Window Glass
+    const rightGlass = new THREE.Mesh(new THREE.BoxGeometry(0.12, 1.1, 1.6), this.cabinWindowMat);
+    rightGlass.position.set(3.7, 1.76, -0.55);
+    this.cabinGroup.add(rightGlass);
+
+    // Front Wall with Doorway Opening in center (width 1.5, height 2.28)
+    const frontWallLeft = new THREE.Mesh(new THREE.BoxGeometry(3.05, 3.0, 0.36), logWallMat);
+    frontWallLeft.position.set(-2.28, 1.66, 2.3);
+    const frontWallRight = new THREE.Mesh(new THREE.BoxGeometry(3.05, 3.0, 0.36), logWallMat);
+    frontWallRight.position.set(2.28, 1.66, 2.3);
+    const frontWallTop = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.72, 0.36), logWallMat);
+    frontWallTop.position.set(0, 2.8, 2.3);
+    this.cabinGroup.add(frontWallLeft, frontWallRight, frontWallTop);
+
+    // Front Windows Glass
+    const frontLeftGlass = new THREE.Mesh(new THREE.BoxGeometry(1.2, 1.1, 0.12), this.cabinWindowMat);
+    frontLeftGlass.position.set(-2.28, 1.7, 2.35);
+    const frontRightGlass = new THREE.Mesh(new THREE.BoxGeometry(1.2, 1.1, 0.12), this.cabinWindowMat);
+    frontRightGlass.position.set(2.28, 1.7, 2.35);
+    this.cabinGroup.add(frontLeftGlass, frontRightGlass);
+
+    // 6. Functional Hinged Front Door
+    this.cabinDoorHinge = new THREE.Group();
+    this.cabinDoorHinge.position.set(-0.74, 0.16, 2.3);
+
+    const doorPanelGeo = new THREE.BoxGeometry(1.44, 2.24, 0.12);
+    const doorPanel = new THREE.Mesh(doorPanelGeo, doorPlankMat);
+    doorPanel.position.set(0.72, 1.12, 0);
+    doorPanel.castShadow = true;
+    this.cabinDoorHinge.add(doorPanel);
+
+    // Rustic Z-brace planks on door
+    const doorBrace = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.1, 0.04), logBeamMat);
+    doorBrace.position.set(0.72, 0.6, 0.08);
+    const doorBrace2 = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.1, 0.04), logBeamMat);
+    doorBrace2.position.set(0.72, 1.65, 0.08);
+    this.cabinDoorHinge.add(doorBrace, doorBrace2);
+
+    // Brass Door Knob
+    const knob = new THREE.Mesh(new THREE.SphereGeometry(0.06, 6, 6), brassMat);
+    knob.position.set(1.3, 1.1, 0.1);
+    this.cabinDoorHinge.add(knob);
+
+    // Iron hinges on pivot
+    const hinge1 = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.18, 0.08), stoneMat);
+    hinge1.position.set(0.03, 0.45, 0.04);
+    const hinge2 = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.18, 0.08), stoneMat);
+    hinge2.position.set(0.03, 1.8, 0.04);
+    this.cabinDoorHinge.add(hinge1, hinge2);
+
+    this.cabinGroup.add(this.cabinDoorHinge);
+
+    // 7. Pitched Wooden Gable Roof
+    const makeGable = (zPos) => {
+      const gableGeo = new THREE.BufferGeometry();
+      const vertices = new Float32Array([
+        -3.8, 3.16, 0,
+         3.8, 3.16, 0,
+         0.0, 4.8,  0
+      ]);
+      gableGeo.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
+      gableGeo.computeVertexNormals();
+      const gable = new THREE.Mesh(gableGeo, logWallMat);
+      gable.position.set(0, 0, zPos);
+      gable.material.side = THREE.DoubleSide;
+      return gable;
+    };
+    this.cabinGroup.add(makeGable(2.3));
+    this.cabinGroup.add(makeGable(-3.4));
+
+    // Roof Slope Panels
+    const roofSlopeGeo = new THREE.BoxGeometry(4.7, 0.18, 8.8);
+    const leftRoof = new THREE.Mesh(roofSlopeGeo, roofMat);
+    leftRoof.position.set(-2.0, 4.05, 0.55);
+    leftRoof.rotation.z = 0.42;
+    leftRoof.castShadow = true;
+
+    const rightRoof = new THREE.Mesh(roofSlopeGeo, roofMat);
+    rightRoof.position.set(2.0, 4.05, 0.55);
+    rightRoof.rotation.z = -0.42;
+    rightRoof.castShadow = true;
+    this.cabinGroup.add(leftRoof, rightRoof);
+
+    // Ridge cap log
+    const ridgeLog = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.14, 9.0, 6), logBeamMat);
+    ridgeLog.rotateX(Math.PI / 2);
+    ridgeLog.position.set(0, 4.86, 0.55);
+    this.cabinGroup.add(ridgeLog);
+
+    // 8. Stone Chimney with Smoke
+    const chimney = new THREE.Mesh(new THREE.BoxGeometry(0.9, 5.4, 0.9), stoneMat);
+    chimney.position.set(2.4, 2.7, -2.4);
+    chimney.castShadow = true;
+    this.cabinGroup.add(chimney);
+
+    const chimneyCap = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.2, 1.1), stoneMat);
+    chimneyCap.position.set(2.4, 5.4, -2.4);
+    this.cabinGroup.add(chimneyCap);
+
+    // Floating Low-Poly Smoke Puffs
+    this.smokeGroup = new THREE.Group();
+    this.smokeGroup.position.set(2.4, 5.5, -2.4);
+    const smokeMat = new THREE.MeshBasicMaterial({ color: 0xd4d4d8, transparent: true, opacity: 0.55 });
+    const smokePuffGeo = new THREE.DodecahedronGeometry(0.18, 0);
+
+    for (let i = 0; i < 7; i++) {
+      const puff = new THREE.Mesh(smokePuffGeo, smokeMat);
+      puff.position.set(
+        (Math.random() - 0.5) * 0.2,
+        i * 0.45,
+        (Math.random() - 0.5) * 0.2
+      );
+      this.smokeGroup.add(puff);
+      this.smokePuffs.push({
+        mesh: puff,
+        baseY: i * 0.45,
+        speed: 0.5 + Math.random() * 0.4,
+        swayOffset: i * 1.2
+      });
+    }
+    this.cabinGroup.add(this.smokeGroup);
+
+    // 9. Cozy Interior Rustic Furniture
+    // Rustic Red Braided Rug
+    const rugGeo = new THREE.CylinderGeometry(1.7, 1.7, 0.02, 16);
+    const rugMat = new THREE.MeshLambertMaterial({ color: 0x991b1b, flatShading: true });
+    const rug = new THREE.Mesh(rugGeo, rugMat);
+    rug.position.set(0, 0.25, -0.6);
+    this.cabinGroup.add(rug);
+
+    // Rustic Dining Table
+    const tableTop = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.09, 1.1), furnitureWoodMat);
+    tableTop.position.set(-1.4, 0.82, -0.6);
+    this.cabinGroup.add(tableTop);
+    [[-2.1, -1.0], [-0.7, -1.0], [-2.1, -0.2], [-0.7, -0.2]].forEach(([lx, lz]) => {
+      const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.7, 5), furnitureWoodMat);
+      leg.position.set(lx, 0.44, lz);
+      this.cabinGroup.add(leg);
+    });
+
+    // 2 Benches beside table
+    const benchGeo = new THREE.BoxGeometry(1.6, 0.08, 0.4);
+    const bench1 = new THREE.Mesh(benchGeo, furnitureWoodMat);
+    bench1.position.set(-1.4, 0.48, 0.2);
+    const bench2 = new THREE.Mesh(benchGeo, furnitureWoodMat);
+    bench2.position.set(-1.4, 0.48, -1.4);
+    this.cabinGroup.add(bench1, bench2);
+
+    // Stone Fireplace & Hearth on back wall
+    const hearth = new THREE.Mesh(new THREE.BoxGeometry(1.8, 1.4, 0.7), stoneMat);
+    hearth.position.set(0, 0.85, -3.0);
+    this.cabinGroup.add(hearth);
+
+    // Glowing fireplace embers
+    const embers = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.2, 0.4), new THREE.MeshBasicMaterial({ color: 0xff4500 }));
+    embers.position.set(0, 0.32, -2.8);
+    this.cabinGroup.add(embers);
+
+    const hearthLight = new THREE.PointLight(0xff4500, 1.2, 6);
+    hearthLight.position.set(0, 0.6, -2.7);
+    this.cabinGroup.add(hearthLight);
+
+    // Cozy Sleeping Bunk Bed in corner
+    const bedFrame = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.35, 2.3), furnitureWoodMat);
+    bedFrame.position.set(2.4, 0.33, -1.8);
+    const blanket = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.16, 1.8), new THREE.MeshLambertMaterial({ color: 0x1e3a8a, flatShading: true }));
+    blanket.position.set(2.4, 0.48, -1.6);
+    const pillow = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.12, 0.45), new THREE.MeshLambertMaterial({ color: 0xf8fafc, flatShading: true }));
+    pillow.position.set(2.4, 0.52, -2.6);
+    this.cabinGroup.add(bedFrame, blanket, pillow);
+
+    // Hanging Ceiling Lantern (Warm Interior Light)
+    this.cabinInteriorLight = new THREE.PointLight(0xffb703, 1.8, 12, 1.2);
+    this.cabinInteriorLight.position.set(0, 2.6, -0.6);
+    this.cabinGroup.add(this.cabinInteriorLight);
+
+    const intLantern = this.createLantern();
+    intLantern.position.set(0, 2.5, -0.6);
+    this.cabinGroup.add(intLantern);
+
+    this.scene.add(this.cabinGroup);
+
+    // 10. Update Matrix World & Register Walkable Objects
+    this.cabinGroup.updateMatrixWorld(true);
+    this.walkableObjects.push(floorMesh, porchMesh, step1, step2);
+
+    // 11. Solid Wall Colliders (Perimeter obstacle circles)
+    const addWallCollider = (lx, lz, radius = 0.55) => {
+      const wp = new THREE.Vector3(lx, 0, lz).applyMatrix4(this.cabinGroup.matrixWorld);
+      this.colliders.push({ x: wp.x, z: wp.z, radius });
+    };
+
+    // Back Wall Colliders
+    for (let lx = -3.2; lx <= 3.2; lx += 1.4) {
+      addWallCollider(lx, -3.4, 0.58);
+    }
+    // Left Wall Colliders
+    for (let lz = -3.0; lz <= 2.0; lz += 1.2) {
+      addWallCollider(-3.7, lz, 0.58);
+    }
+    // Right Wall Colliders
+    for (let lz = -3.0; lz <= 2.0; lz += 1.2) {
+      addWallCollider(3.7, lz, 0.58);
+    }
+    // Front Left Wall Colliders
+    addWallCollider(-2.0, 2.3, 0.6);
+    addWallCollider(-3.1, 2.3, 0.6);
+
+    // Front Right Wall Colliders
+    addWallCollider(2.0, 2.3, 0.6);
+    addWallCollider(3.1, 2.3, 0.6);
+
+    // Chimney Outer Wall Collider
+    const chimneyWp = new THREE.Vector3(2.4, 0, -2.4).applyMatrix4(this.cabinGroup.matrixWorld);
+    this.colliders.push({ x: chimneyWp.x, z: chimneyWp.z, radius: 0.8 });
+
+    // Table Collider
+    const tableWp = new THREE.Vector3(-1.4, 0, -0.6).applyMatrix4(this.cabinGroup.matrixWorld);
+    this.colliders.push({ x: tableWp.x, z: tableWp.z, radius: 0.75 });
+
+    // Bed Collider
+    const bedWp = new THREE.Vector3(2.4, 0, -1.8).applyMatrix4(this.cabinGroup.matrixWorld);
+    this.colliders.push({ x: bedWp.x, z: bedWp.z, radius: 0.85 });
+
+    // 12. Door Collider (Blocks doorway when door is closed; allows entry when open)
+    const doorCenterWorld = new THREE.Vector3(0, 0, 2.3).applyMatrix4(this.cabinGroup.matrixWorld);
+    this.doorCollider = {
+      x: doorCenterWorld.x,
+      z: doorCenterWorld.z,
+      radius: 0.82
+    };
+    this.colliders.push(this.doorCollider);
+
+    // 13. Register Door Interactable
+    const doorInteractWorld = new THREE.Vector3(0, 1.2, 2.7).applyMatrix4(this.cabinGroup.matrixWorld);
+    this.cabinDoorInteractable = {
+      type: 'cabin_door',
+      id: 'cabin_front_door',
+      name: 'Cabin Door',
+      position: doorInteractWorld,
+      radius: 2.5,
+      actionText: 'Open Cabin Door'
+    };
+    this.interactables.push(this.cabinDoorInteractable);
+  }
+
+  toggleCabinDoor() {
+    this.cabinDoorOpen = !this.cabinDoorOpen;
+    this.cabinDoorTargetAngle = this.cabinDoorOpen ? (Math.PI * 0.55) : 0;
+    soundFX.playDoorCreak(this.cabinDoorOpen);
+    this.updateCabinDoorCollider();
+    if (this.cabinDoorInteractable) {
+      this.cabinDoorInteractable.actionText = this.cabinDoorOpen ? 'Close Cabin Door' : 'Open Cabin Door';
+    }
+    return this.cabinDoorOpen;
+  }
+
+  setCabinDoorState(isOpen) {
+    if (this.cabinDoorOpen === isOpen) return;
+    this.cabinDoorOpen = isOpen;
+    this.cabinDoorTargetAngle = isOpen ? (Math.PI * 0.55) : 0;
+    soundFX.playDoorCreak(isOpen);
+    this.updateCabinDoorCollider();
+    if (this.cabinDoorInteractable) {
+      this.cabinDoorInteractable.actionText = isOpen ? 'Close Cabin Door' : 'Open Cabin Door';
+    }
+  }
+
+  updateCabinDoorCollider() {
+    if (this.doorCollider) {
+      // When door is open, remove collision radius so player can freely walk inside!
+      // When closed, restore solid collision radius.
+      this.doorCollider.radius = this.cabinDoorOpen ? 0.0 : 0.82;
+    }
   }
 
   createLantern() {
@@ -812,7 +1189,7 @@ export class CampsiteWorld {
     }
   }
 
-  update(delta) {
+  update(delta, playerPos, isFishing, bobberPos, dayNight) {
     this.waterTime += delta;
 
     // 1. Lake water gentle low-poly bobbing & waves
@@ -821,7 +1198,57 @@ export class CampsiteWorld {
       this.waterMesh.position.y = (this.waterLevel - 0.4) + Math.sin(this.waterTime * 1.5) * 0.04;
     }
 
-    // 2. Campfire flame animation & flickering light
+    // 2. Animated Swimming Fish in the Lake
+    if (this.fishSchool) {
+      this.fishSchool.update(delta, playerPos || new THREE.Vector3(0, 0, 0), isFishing || false, bobberPos || null);
+    }
+
+    // 3. Cabin Door Smooth Swing Animation
+    if (this.cabinDoorHinge) {
+      this.cabinDoorAngle = THREE.MathUtils.lerp(this.cabinDoorAngle, this.cabinDoorTargetAngle, delta * 6.5);
+      this.cabinDoorHinge.rotation.y = this.cabinDoorAngle;
+    }
+
+    // 4. Cabin Chimney Smoke Puffs
+    if (this.smokePuffs && this.smokePuffs.length > 0) {
+      const st = Date.now() * 0.001;
+      this.smokePuffs.forEach((puff) => {
+        puff.mesh.position.y += puff.speed * delta;
+        puff.mesh.position.x = Math.sin(st * 1.8 + puff.swayOffset) * 0.16;
+        puff.mesh.position.z = Math.cos(st * 1.4 + puff.swayOffset) * 0.16;
+        const prog = puff.mesh.position.y / 2.6;
+        puff.mesh.scale.setScalar(0.8 + prog * 1.4);
+        if (puff.mesh.material) {
+          puff.mesh.material.opacity = Math.max(0, 0.55 - prog * 0.55);
+        }
+        if (puff.mesh.position.y > 2.6) {
+          puff.mesh.position.y = 0.05;
+          puff.mesh.scale.setScalar(0.8);
+          if (puff.mesh.material) puff.mesh.material.opacity = 0.55;
+        }
+      });
+    }
+
+    // 5. Cabin Windows & Interior Warm Glow (soft by day, bright cozy glow at night)
+    if (dayNight && this.cabinWindowMat) {
+      const isNight = (dayNight.cycleTimer >= dayNight.dayDuration);
+      const targetEmissive = isNight ? 1.3 : 0.4;
+      const targetLight = isNight ? 2.6 : 1.3;
+      this.cabinWindowMat.emissiveIntensity = THREE.MathUtils.lerp(
+        this.cabinWindowMat.emissiveIntensity,
+        targetEmissive,
+        delta * 2.0
+      );
+      if (this.cabinInteriorLight) {
+        this.cabinInteriorLight.intensity = THREE.MathUtils.lerp(
+          this.cabinInteriorLight.intensity,
+          targetLight,
+          delta * 2.0
+        );
+      }
+    }
+
+    // 6. Campfire flame animation & flickering light
     this.campfireLevel = THREE.MathUtils.lerp(this.campfireLevel, this.campfireTargetLevel, delta * 2.0);
     // Natural slow decay of campfire level back to 1.0
     if (this.campfireTargetLevel > 1.0) {
@@ -841,7 +1268,7 @@ export class CampsiteWorld {
     this.fireLight.intensity = (2.4 + Math.sin(t * 7) * 0.6 + (Math.random() - 0.5) * 0.2) * this.campfireLevel;
     this.fireLight.distance = 16 * Math.sqrt(this.campfireLevel);
 
-    // 3. Campfire Embers animation
+    // 7. Campfire Embers animation
     if (this.emberParticles) {
       const pos = this.emberParticles.geometry.attributes.position;
       for (let i = 0; i < this.emberData.length; i++) {
@@ -862,7 +1289,7 @@ export class CampsiteWorld {
       pos.needsUpdate = true;
     }
 
-    // 4. Tree wobbles & respawn timers
+    // 8. Tree wobbles & respawn timers
     this.trees.forEach(tree => {
       if (tree.wobbleTimer > 0) {
         tree.wobbleTimer -= delta;
@@ -888,7 +1315,7 @@ export class CampsiteWorld {
       }
     });
 
-    // 5. Dropped logs halo pulse
+    // 9. Dropped logs halo pulse
     this.droppedLogs.forEach(log => {
       log.time += delta;
       if (log.halo) {

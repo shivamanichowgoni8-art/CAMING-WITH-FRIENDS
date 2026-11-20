@@ -37,6 +37,14 @@ export class PlayerController {
       interact: false
     };
 
+    // Keyboard look orbit keys (Arrow keys & I/J/K/L)
+    this.lookKeys = {
+      left: false,
+      right: false,
+      up: false,
+      down: false
+    };
+
     // Touch / Mobile state
     this.isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
     this.touchJoystick = { active: false, startX: 0, startY: 0, moveX: 0, moveY: 0, x: 0, y: 0 };
@@ -50,6 +58,7 @@ export class PlayerController {
 
     // Callbacks
     this.onInteractPressed = null;
+    this.onPointerLockChange = null;
 
     this.setupEventListeners();
   }
@@ -61,10 +70,18 @@ export class PlayerController {
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
 
       switch (e.code) {
-        case 'KeyW': case 'ArrowUp':    this.keys.forward = true; break;
-        case 'KeyS': case 'ArrowDown':  this.keys.backward = true; break;
-        case 'KeyA': case 'ArrowLeft':  this.keys.left = true; break;
-        case 'KeyD': case 'ArrowRight': this.keys.right = true; break;
+        // Character Movement: WASD
+        case 'KeyW': this.keys.forward = true; break;
+        case 'KeyS': this.keys.backward = true; break;
+        case 'KeyA': this.keys.left = true; break;
+        case 'KeyD': this.keys.right = true; break;
+
+        // Camera Orbit Look: Arrow Keys & I/J/K/L
+        case 'ArrowLeft':  case 'KeyJ': this.lookKeys.left = true; break;
+        case 'ArrowRight': case 'KeyL': this.lookKeys.right = true; break;
+        case 'ArrowUp':    case 'KeyI': this.lookKeys.up = true; break;
+        case 'ArrowDown':  case 'KeyK': this.lookKeys.down = true; break;
+
         case 'Space':
           this.keys.jump = true;
           if (this.isSitting) this.standUp();
@@ -81,16 +98,44 @@ export class PlayerController {
 
     window.addEventListener('keyup', (e) => {
       switch (e.code) {
-        case 'KeyW': case 'ArrowUp':    this.keys.forward = false; break;
-        case 'KeyS': case 'ArrowDown':  this.keys.backward = false; break;
-        case 'KeyA': case 'ArrowLeft':  this.keys.left = false; break;
-        case 'KeyD': case 'ArrowRight': this.keys.right = false; break;
+        case 'KeyW': this.keys.forward = false; break;
+        case 'KeyS': this.keys.backward = false; break;
+        case 'KeyA': this.keys.left = false; break;
+        case 'KeyD': this.keys.right = false; break;
+
+        case 'ArrowLeft':  case 'KeyJ': this.lookKeys.left = false; break;
+        case 'ArrowRight': case 'KeyL': this.lookKeys.right = false; break;
+        case 'ArrowUp':    case 'KeyI': this.lookKeys.up = false; break;
+        case 'ArrowDown':  case 'KeyK': this.lookKeys.down = false; break;
+
         case 'Space':                   this.keys.jump = false; break;
         case 'ShiftLeft': case 'ShiftRight': this.keys.sprint = false; break;
       }
     });
 
-    // 360° Free-Orbit Mouse Drag & Pointer Lock
+    // Pointer Lock on Canvas Click (No-Click Mouse & Trackpad Look)
+    this.domElement.addEventListener('click', (e) => {
+      // Ignore if clicking UI buttons, modals or chat
+      if (document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA')) return;
+      if (document.querySelector('.party-modal-backdrop:not(.hidden), .lobby-card, .fishing-overlay:not(.hidden)')) return;
+
+      if (document.pointerLockElement !== this.domElement) {
+        try {
+          this.domElement.requestPointerLock();
+        } catch (err) {
+          console.warn('Pointer lock request error:', err);
+        }
+      }
+    });
+
+    document.addEventListener('pointerlockchange', () => {
+      this.isPointerLocked = (document.pointerLockElement === this.domElement);
+      if (this.onPointerLockChange) {
+        this.onPointerLockChange(this.isPointerLocked);
+      }
+    });
+
+    // 360° Free-Orbit Mouse Drag Fallback
     window.addEventListener('mousedown', (e) => {
       if (e.target.closest('button, input, textarea, a, .btn, .char-card, .party-card, .fishing-card')) return;
       this.isMouseDown = true;
@@ -103,25 +148,36 @@ export class PlayerController {
     });
 
     window.addEventListener('mousemove', (e) => {
-      if (document.pointerLockElement === this.domElement) {
-        this.yaw -= e.movementX * 0.0035;
-        this.pitch -= e.movementY * 0.0035;
+      if (this.isPointerLocked || document.pointerLockElement === this.domElement) {
+        // Free-look with mouse or trackpad movement without holding any button
+        this.yaw -= e.movementX * 0.0032;
+        this.pitch -= e.movementY * 0.0032;
         this.clampPitch();
       } else if (this.isMouseDown) {
+        // Drag fallback
         const dx = e.clientX - this.lastMouseX;
         const dy = e.clientY - this.lastMouseY;
-        this.yaw -= dx * 0.0045;
-        this.pitch -= dy * 0.0045;
+        this.yaw -= dx * 0.0042;
+        this.pitch -= dy * 0.0042;
         this.clampPitch();
         this.lastMouseX = e.clientX;
         this.lastMouseY = e.clientY;
       }
     });
 
-    // Mouse scroll to zoom camera distance
+    // Mouse wheel & Laptop trackpad gestures
     window.addEventListener('wheel', (e) => {
       if (e.target.closest('.chat-messages-container, .party-modal-body, .character-grid')) return;
-      this.cameraDistance = THREE.MathUtils.clamp(this.cameraDistance + e.deltaY * 0.005, 2.5, 9.5);
+
+      // Laptop Trackpad: smooth two-finger horizontal swipe rotates camera horizontally
+      if (Math.abs(e.deltaX) > 0.6 && !e.ctrlKey) {
+        this.yaw += e.deltaX * 0.0036;
+      }
+
+      // Trackpad vertical scroll or mouse wheel zooms camera in/out
+      if (Math.abs(e.deltaY) > 0.6 && !e.ctrlKey) {
+        this.cameraDistance = THREE.MathUtils.clamp(this.cameraDistance + e.deltaY * 0.006, 2.5, 9.5);
+      }
     }, { passive: true });
   }
 
@@ -152,6 +208,14 @@ export class PlayerController {
   }
 
   update(delta) {
+    // Laptop Keyboard Orbit Look (Arrow keys & I/J/K/L)
+    const keyLookSpeed = 2.2;
+    if (this.lookKeys.left)  this.yaw -= keyLookSpeed * delta;
+    if (this.lookKeys.right) this.yaw += keyLookSpeed * delta;
+    if (this.lookKeys.up)    this.pitch += keyLookSpeed * delta;
+    if (this.lookKeys.down)  this.pitch -= keyLookSpeed * delta;
+    if (this.lookKeys.up || this.lookKeys.down) this.clampPitch();
+
     if (this.isSitting) {
       // Keep model glued to sitting bench
       this.model.root.position.copy(this.position);
@@ -211,16 +275,20 @@ export class PlayerController {
     this.velocity.x = THREE.MathUtils.lerp(this.velocity.x, targetVx, delta * 12);
     this.velocity.z = THREE.MathUtils.lerp(this.velocity.z, targetVz, delta * 12);
 
-    // 2. Vertical Physics & Exact Terrain Snapping (zero floating gap)
+    // 2. Vertical Physics & Exact Surface / Dock / Floor Snapping
     const groundY = this.world.getGroundHeight(this.position.x, this.position.z);
     const waterY = this.world.waterLevel;
 
-    // Check if swimming in lake
-    if (this.position.y < waterY + 0.25 && groundY < waterY - 0.2) {
+    // Open water condition: the solid surface beneath the player is below lake water level
+    const isOverDeepWater = (groundY < waterY - 0.15);
+
+    if (isOverDeepWater && this.position.y < waterY + 0.35) {
       this.isSwimming = true;
-      // Buoyancy in water
-      const floatTargetY = waterY - 0.22;
-      this.velocity.y = THREE.MathUtils.lerp(this.velocity.y, (floatTargetY - this.position.y) * 4.0, delta * 5);
+      // Realistically sink/submerge down to chest/neck level (water surface at y = -0.1)
+      // Setting target y to (waterY - 0.78) immerses lower body, waist, and lower torso so water line sits at chest/neck
+      const waterBob = Math.sin(Date.now() * 0.003) * 0.03;
+      const floatTargetY = waterY - 0.78 + waterBob;
+      this.velocity.y = THREE.MathUtils.lerp(this.velocity.y, (floatTargetY - this.position.y) * 4.5, delta * 6);
       this.isGrounded = false;
 
       // Jump / splash out of water
@@ -235,7 +303,7 @@ export class PlayerController {
           this.velocity.y = 7.5;
           this.isGrounded = false;
         } else {
-          // Firmly snap feet cleanly to the terrain surface with zero floating gap
+          // Firmly snap feet cleanly to the solid surface (terrain, dock planks, or cabin floor)
           this.position.y = groundY;
           this.velocity.y = 0;
         }
@@ -252,14 +320,15 @@ export class PlayerController {
 
     // Re-evaluate ground collision after movement
     const finalGroundY = this.world.getGroundHeight(this.position.x, this.position.z);
+    const finalIsOverWater = (finalGroundY < waterY - 0.15);
 
-    if (!this.isSwimming) {
+    if (!this.isSwimming && !finalIsOverWater) {
       if (this.isGrounded) {
-        // When grounded and walking across uneven terrain or slopes, snap cleanly
+        // When grounded and walking across uneven terrain, dock, or cabin floor, snap cleanly
         this.position.y = finalGroundY;
         this.velocity.y = 0;
       } else {
-        // When airborne, check if landed on terrain
+        // When airborne, check if landed on solid surface
         if (this.position.y <= finalGroundY) {
           this.position.y = finalGroundY;
           this.velocity.y = 0;
@@ -268,7 +337,7 @@ export class PlayerController {
       }
     }
 
-    // Check Obstacle Colliders (Trees, Tents, Boulders)
+    // Check Obstacle Colliders (Trees, Cabin Walls, Boulders)
     this.world.colliders.forEach(col => {
       const dx = this.position.x - col.x;
       const dz = this.position.z - col.z;
@@ -302,7 +371,7 @@ export class PlayerController {
 
   updateCamera(delta) {
     // Smooth target tracking character's head/chest
-    const targetHeight = this.isSitting ? 0.8 : (this.isSwimming ? 0.35 : 1.15);
+    const targetHeight = this.isSitting ? 0.8 : (this.isSwimming ? 0.88 : 1.15);
     const idealTarget = new THREE.Vector3(
       this.position.x,
       this.position.y + targetHeight,

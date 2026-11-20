@@ -16,6 +16,7 @@ export class InteractionManager {
 
     // Fishing mini-game active state
     this.isFishing = false;
+    this.bobberPos = { x: 23.5, y: -0.05, z: 20.0 };
     this.fishBiteTimer = null;
     this.fishingState = 'idle'; // 'casting', 'waiting', 'hooking', 'caught', 'missed'
     this.fishMeterPos = 0;
@@ -54,6 +55,20 @@ export class InteractionManager {
       case 'sit_log':
         this.sitAtCampfire(nearby);
         break;
+
+      case 'cabin_door':
+        this.toggleCabinDoor();
+        break;
+    }
+  }
+
+  toggleCabinDoor() {
+    const isOpen = this.world.toggleCabinDoor();
+    if (this.network) {
+      this.network.broadcast({
+        type: 'cabin_door_toggle',
+        isOpen
+      });
     }
   }
 
@@ -288,6 +303,8 @@ export class InteractionManager {
         promptText = 'Cast Fishing Line';
       } else if (nearby.type === 'sit_log') {
         promptText = this.player.isSitting ? 'Stand Up' : 'Sit by Campfire';
+      } else if (nearby.type === 'cabin_door') {
+        promptText = this.world.cabinDoorOpen ? 'Close Cabin Door' : 'Open Cabin Door';
       }
     }
 

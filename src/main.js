@@ -207,6 +207,11 @@ class CampfireGame {
       this.world.boostCampfire(amount);
     };
 
+    // Remote cabin door toggle sync
+    this.network.onCabinDoorToggled = (isOpen) => {
+      this.world.setCabinDoorState(isOpen);
+    };
+
     // Remote speaking wave indicator
     this.network.onSpeakingState = (peerId, isSpeaking, level) => {
       if (peerId === this.network.myPeerId) {
@@ -227,9 +232,12 @@ class CampfireGame {
       this.dayNight.update(delta);
     }
 
-    // Update Campsite animations (water waves, campfire flicker, ember particles)
+    // Update Campsite animations (water waves, swimming fish, cabin door, smoke, campfire flicker, ember particles)
     if (this.world) {
-      this.world.update(delta);
+      const playerPos = this.playerController ? this.playerController.position : null;
+      const isFishing = this.interactions ? this.interactions.isFishing : false;
+      const bobberPos = this.interactions && this.interactions.bobberPos ? this.interactions.bobberPos : null;
+      this.world.update(delta, playerPos, isFishing, bobberPos, this.dayNight);
     }
 
     if (this.isGameRunning) {

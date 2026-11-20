@@ -118,6 +118,25 @@ class SoundFXManager {
     noiseNode.start(now);
   }
 
+  playDoorCreak(isOpen) {
+    if (!this.ctx || this.isMuted) return;
+    this.resume();
+    const now = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = 'sawtooth';
+    const startFreq = isOpen ? 120 : 240;
+    const endFreq = isOpen ? 220 : 105;
+    osc.frequency.setValueAtTime(startFreq, now);
+    osc.frequency.exponentialRampToValueAtTime(endFreq, now + 0.28);
+    gain.gain.setValueAtTime(0.08, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+    osc.connect(gain);
+    gain.connect(this.ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.3);
+  }
+
   playWaterSplash() {
     if (!this.ctx || this.isMuted) return;
     this.resume();
