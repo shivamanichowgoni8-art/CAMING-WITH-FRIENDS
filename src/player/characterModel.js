@@ -106,9 +106,9 @@ export class CharacterModel {
     const matEye = new THREE.MeshBasicMaterial({ color: 0x111111 });
     const matWhite = new THREE.MeshBasicMaterial({ color: 0xffffff });
 
-    // Center pivot for whole avatar
+    // Center pivot for whole avatar - calibrated so boot soles sit exactly at y = 0.00
     this.bodyGroup = new THREE.Group();
-    this.bodyGroup.position.y = 0.75; // waist height
+    this.bodyGroup.position.y = 0.68; // waist height
     this.root.add(this.bodyGroup);
 
     // 1. Torso
@@ -467,7 +467,8 @@ export class CharacterModel {
     // Animation pose solver
     switch (this.animState) {
       case 'idle':
-        this.bodyGroup.position.y = 0.75 + Math.sin(t * 2) * 0.02;
+        this.bodyGroup.position.y = 0.68;
+        this.torso.position.y = 0.32 + Math.sin(t * 2) * 0.012;
         this.torso.rotation.set(0, 0, Math.sin(t * 1.5) * 0.02);
         this.headGroup.rotation.set(Math.sin(t * 1.2) * 0.03, 0, 0);
 
@@ -485,7 +486,7 @@ export class CharacterModel {
 
       case 'walk':
         const walkSpeed = 8;
-        this.bodyGroup.position.y = 0.75 + Math.abs(Math.sin(t * walkSpeed)) * 0.06;
+        this.bodyGroup.position.y = 0.68 + Math.abs(Math.sin(t * walkSpeed)) * 0.035;
         this.torso.rotation.y = Math.sin(t * walkSpeed * 0.5) * 0.08;
 
         this.leftLeg.rotation.x = Math.sin(t * walkSpeed) * 0.65;
@@ -502,7 +503,7 @@ export class CharacterModel {
 
       case 'run':
         const runSpeed = 13;
-        this.bodyGroup.position.y = 0.75 + Math.abs(Math.sin(t * runSpeed)) * 0.12;
+        this.bodyGroup.position.y = 0.68 + Math.abs(Math.sin(t * runSpeed)) * 0.07;
         this.torso.rotation.x = 0.2; // lean forward
 
         this.leftLeg.rotation.x = Math.sin(t * runSpeed) * 0.95;
@@ -533,6 +534,7 @@ export class CharacterModel {
 
       case 'chop':
         // Axe chopping loop
+        this.bodyGroup.position.y = 0.68;
         const chopCycle = (t * 4) % (Math.PI * 2);
         const chopPower = Math.sin(chopCycle);
         if (chopPower > 0) {
@@ -552,7 +554,7 @@ export class CharacterModel {
 
       case 'fish':
         // Fishing rod hold & slight reel
-        this.bodyGroup.position.y = 0.75;
+        this.bodyGroup.position.y = 0.68;
         this.torso.rotation.set(0, 0, 0);
         this.rightArm.rotation.set(-0.8 + Math.sin(t * 2) * 0.08, -0.2, 0);
         this.leftArm.rotation.set(-0.4 + Math.cos(t * 4) * 0.1, 0.3, 0);
@@ -562,7 +564,7 @@ export class CharacterModel {
 
       case 'sit':
         // Seated on log
-        this.bodyGroup.position.y = 0.45;
+        this.bodyGroup.position.y = 0.42;
         this.torso.rotation.set(0, 0, 0);
         this.leftLeg.rotation.set(-1.45, 0, 0);
         this.rightLeg.rotation.set(-1.45, 0, 0);

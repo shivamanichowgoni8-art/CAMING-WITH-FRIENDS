@@ -697,11 +697,13 @@ input[type="text"]:focus, input[type="password"]:focus {
 
 .camera-touch-zone {
   position: absolute;
-  top: 60px;
+  top: 0;
   right: 0;
-  bottom: 120px;
-  width: 50%;
+  bottom: 0;
+  width: 55%;
   pointer-events: auto;
+  z-index: 5;
+  touch-action: none;
 }
 
 .mobile-action-buttons {
@@ -712,6 +714,7 @@ input[type="text"]:focus, input[type="password"]:focus {
   flex-direction: column;
   gap: 12px;
   pointer-events: auto;
+  z-index: 15;
 }
 
 .mobile-action-btn {

@@ -474,7 +474,7 @@ export class HudUI {
       camTouchId = touch.identifier;
       lastCamX = touch.clientX;
       lastCamY = touch.clientY;
-    }, { passive: true });
+    }, { passive: false });
 
     window.addEventListener('touchmove', (e) => {
       for (let i = 0; i < e.changedTouches.length; i++) {

@@ -90,19 +90,12 @@ export class PlayerController {
       }
     });
 
-    // Pointer Lock & Mouse Look
-    this.domElement.addEventListener('click', () => {
-      if (!this.isTouchDevice && document.pointerLockElement !== this.domElement) {
-        // Can request pointer lock if desired
-      }
-    });
-
-    this.domElement.addEventListener('mousedown', (e) => {
-      if (e.button === 0 || e.button === 2) {
-        this.isMouseDown = true;
-        this.lastMouseX = e.clientX;
-        this.lastMouseY = e.clientY;
-      }
+    // 360° Free-Orbit Mouse Drag & Pointer Lock
+    window.addEventListener('mousedown', (e) => {
+      if (e.target.closest('button, input, textarea, a, .btn, .char-card, .party-card, .fishing-card')) return;
+      this.isMouseDown = true;
+      this.lastMouseX = e.clientX;
+      this.lastMouseY = e.clientY;
     });
 
     window.addEventListener('mouseup', () => {
@@ -111,14 +104,14 @@ export class PlayerController {
 
     window.addEventListener('mousemove', (e) => {
       if (document.pointerLockElement === this.domElement) {
-        this.yaw -= e.movementX * 0.003;
-        this.pitch -= e.movementY * 0.003;
+        this.yaw -= e.movementX * 0.0035;
+        this.pitch -= e.movementY * 0.0035;
         this.clampPitch();
       } else if (this.isMouseDown) {
         const dx = e.clientX - this.lastMouseX;
         const dy = e.clientY - this.lastMouseY;
-        this.yaw -= dx * 0.004;
-        this.pitch -= dy * 0.004;
+        this.yaw -= dx * 0.0045;
+        this.pitch -= dy * 0.0045;
         this.clampPitch();
         this.lastMouseX = e.clientX;
         this.lastMouseY = e.clientY;
@@ -126,13 +119,14 @@ export class PlayerController {
     });
 
     // Mouse scroll to zoom camera distance
-    this.domElement.addEventListener('wheel', (e) => {
-      this.cameraDistance = THREE.MathUtils.clamp(this.cameraDistance + e.deltaY * 0.005, 2.5, 9.0);
+    window.addEventListener('wheel', (e) => {
+      if (e.target.closest('.chat-messages-container, .party-modal-body, .character-grid')) return;
+      this.cameraDistance = THREE.MathUtils.clamp(this.cameraDistance + e.deltaY * 0.005, 2.5, 9.5);
     }, { passive: true });
   }
 
   clampPitch() {
-    this.pitch = Math.max(-0.6, Math.min(1.2, this.pitch));
+    this.pitch = Math.max(-0.35, Math.min(1.25, this.pitch));
   }
 
   sitDown(sitInteractable) {
@@ -153,7 +147,7 @@ export class PlayerController {
     if (!this.isSitting) return;
     this.isSitting = false;
     this.sittingLogId = null;
-    this.position.y += 0.5;
+    this.position.y = this.world.getGroundHeight(this.position.x, this.position.z);
     this.model.setAnimation('idle');
   }
 
@@ -217,34 +211,37 @@ export class PlayerController {
     this.velocity.x = THREE.MathUtils.lerp(this.velocity.x, targetVx, delta * 12);
     this.velocity.z = THREE.MathUtils.lerp(this.velocity.z, targetVz, delta * 12);
 
-    // 2. Vertical Physics & Terrain / Water interaction
-    const terrainY = this.world.getTerrainHeight(this.position.x, this.position.z);
+    // 2. Vertical Physics & Exact Terrain Snapping (zero floating gap)
+    const groundY = this.world.getGroundHeight(this.position.x, this.position.z);
     const waterY = this.world.waterLevel;
 
-    // Check if in water
-    if (this.position.y < waterY + 0.3 && terrainY < waterY) {
+    // Check if swimming in lake
+    if (this.position.y < waterY + 0.25 && groundY < waterY - 0.2) {
       this.isSwimming = true;
       // Buoyancy in water
-      const floatTargetY = waterY - 0.2;
+      const floatTargetY = waterY - 0.22;
       this.velocity.y = THREE.MathUtils.lerp(this.velocity.y, (floatTargetY - this.position.y) * 4.0, delta * 5);
       this.isGrounded = false;
 
       // Jump / splash out of water
       if (this.keys.jump) {
-        this.velocity.y = 5.0;
+        this.velocity.y = 5.2;
       }
     } else {
       this.isSwimming = false;
 
-      // Regular Gravity on land
-      if (!this.isGrounded) {
-        this.velocity.y -= 22 * delta; // gravity
-      }
-
-      // Jump
-      if (this.keys.jump && this.isGrounded) {
-        this.velocity.y = 7.5;
-        this.isGrounded = false;
+      if (this.isGrounded) {
+        if (this.keys.jump) {
+          this.velocity.y = 7.5;
+          this.isGrounded = false;
+        } else {
+          // Firmly snap feet cleanly to the terrain surface with zero floating gap
+          this.position.y = groundY;
+          this.velocity.y = 0;
+        }
+      } else {
+        // In air (falling or jumping)
+        this.velocity.y -= 22 * delta;
       }
     }
 
@@ -253,12 +250,22 @@ export class PlayerController {
     this.position.y += this.velocity.y * delta;
     this.position.z += this.velocity.z * delta;
 
-    // Check Ground Collision
-    const updatedTerrainY = this.world.getTerrainHeight(this.position.x, this.position.z);
-    if (this.position.y <= updatedTerrainY + 0.1) {
-      this.position.y = updatedTerrainY + 0.1;
-      this.velocity.y = 0;
-      this.isGrounded = true;
+    // Re-evaluate ground collision after movement
+    const finalGroundY = this.world.getGroundHeight(this.position.x, this.position.z);
+
+    if (!this.isSwimming) {
+      if (this.isGrounded) {
+        // When grounded and walking across uneven terrain or slopes, snap cleanly
+        this.position.y = finalGroundY;
+        this.velocity.y = 0;
+      } else {
+        // When airborne, check if landed on terrain
+        if (this.position.y <= finalGroundY) {
+          this.position.y = finalGroundY;
+          this.velocity.y = 0;
+          this.isGrounded = true;
+        }
+      }
     }
 
     // Check Obstacle Colliders (Trees, Tents, Boulders)
@@ -295,13 +302,13 @@ export class PlayerController {
 
   updateCamera(delta) {
     // Smooth target tracking character's head/chest
-    const targetHeight = this.isSitting ? 0.9 : (this.isSwimming ? 0.4 : 1.3);
+    const targetHeight = this.isSitting ? 0.8 : (this.isSwimming ? 0.35 : 1.15);
     const idealTarget = new THREE.Vector3(
       this.position.x,
       this.position.y + targetHeight,
       this.position.z
     );
-    this.cameraTarget.lerp(idealTarget, delta * 12);
+    this.cameraTarget.lerp(idealTarget, delta * 14);
 
     // Calculate spherical camera position
     const cosPitch = Math.cos(this.pitch);
@@ -310,11 +317,11 @@ export class PlayerController {
     const cosYaw = Math.cos(this.yaw);
 
     const cx = this.cameraTarget.x + this.cameraDistance * cosPitch * sinYaw;
-    const cy = this.cameraTarget.y + this.cameraDistance * sinPitch + 0.5;
+    const cy = this.cameraTarget.y + this.cameraDistance * sinPitch;
     const cz = this.cameraTarget.z + this.cameraDistance * cosPitch * cosYaw;
 
-    // Prevent camera from clipping through ground
-    const camGroundY = this.world.getTerrainHeight(cx, cz) + 0.4;
+    // Prevent camera from clipping through terrain
+    const camGroundY = this.world.getGroundHeight(cx, cz) + 0.45;
     const finalCy = Math.max(camGroundY, cy);
 
     this.camera.position.set(cx, finalCy, cz);

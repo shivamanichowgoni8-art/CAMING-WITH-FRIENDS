@@ -1,10 +1,13 @@
 import * as THREE from 'three';
 
 export class DayNightCycle {
-  constructor(scene, durationSeconds = 180) {
+  constructor(scene) {
     this.scene = scene;
-    this.duration = durationSeconds; // full 24h cycle duration
-    this.time = 0.2; // starts at early morning / morning glow (0.2 = ~8:00 AM)
+    // Exactly 10 real minutes Day (600s) + 6 real minutes Night (360s) = 16 minutes Total (960s)
+    this.dayDuration = 600;   // 10 minutes
+    this.nightDuration = 360; // 6 minutes
+    this.totalDuration = 960; // 16 minutes total
+    this.cycleTimer = 60;     // Starts in early morning light (~7:24 AM)
     this.orbitRadius = 75;
 
     // Atmospheric elements
@@ -13,17 +16,17 @@ export class DayNightCycle {
     this.setupStarField();
 
     // Scene Fog
-    this.scene.fog = new THREE.FogExp2(0x70c1b3, 0.0075);
+    this.scene.fog = new THREE.FogExp2(0x52a5db, 0.006);
   }
 
   setupLighting() {
     // Ambient / Hemisphere light
-    this.hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 0.7);
+    this.hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 0.85);
     this.hemiLight.position.set(0, 50, 0);
     this.scene.add(this.hemiLight);
 
-    // Sun directional light (casts shadows)
-    this.sunLight = new THREE.DirectionalLight(0xfffaed, 1.4);
+    // Sun directional light (casts soft shadows)
+    this.sunLight = new THREE.DirectionalLight(0xfffaed, 1.45);
     this.sunLight.castShadow = true;
     this.sunLight.shadow.mapSize.width = 1024;
     this.sunLight.shadow.mapSize.height = 1024;
@@ -37,8 +40,8 @@ export class DayNightCycle {
     this.sunLight.shadow.bias = -0.0005;
     this.scene.add(this.sunLight);
 
-    // Moon directional light (subtle cool blue fill at night)
-    this.moonLight = new THREE.DirectionalLight(0x8ab4f8, 0.2);
+    // Moon directional light (cool pale-blue fill during night)
+    this.moonLight = new THREE.DirectionalLight(0x8ab4f8, 0.0);
     this.scene.add(this.moonLight);
   }
 
@@ -49,7 +52,7 @@ export class DayNightCycle {
     this.sunMesh = new THREE.Mesh(sunGeo, sunMat);
     this.scene.add(this.sunMesh);
 
-    // Moon visual orb (crescent / cratered look)
+    // Moon visual orb
     const moonGeo = new THREE.SphereGeometry(2.4, 12, 12);
     const moonMat = new THREE.MeshBasicMaterial({ color: 0xe2e8f0 });
     this.moonMesh = new THREE.Mesh(moonGeo, moonMat);
@@ -57,27 +60,27 @@ export class DayNightCycle {
   }
 
   setupStarField() {
-    const starCount = 650;
+    const starCount = 700;
     const starGeo = new THREE.BufferGeometry();
     const starPos = new Float32Array(starCount * 3);
 
     for (let i = 0; i < starCount; i++) {
-      // Hemisphere distribution above the world
+      // Upper celestial hemisphere distribution
       const u = Math.random();
       const v = Math.random();
       const theta = u * 2.0 * Math.PI;
-      const phi = Math.acos(2.0 * v - 1.0) * 0.5; // only upper hemisphere
+      const phi = Math.acos(2.0 * v - 1.0) * 0.5;
 
       const r = 90 + Math.random() * 20;
       starPos[i * 3]     = r * Math.sin(phi) * Math.cos(theta);
-      starPos[i * 3 + 1] = Math.max(12, r * Math.cos(phi));
+      starPos[i * 3 + 1] = Math.max(10, r * Math.cos(phi));
       starPos[i * 3 + 2] = r * Math.sin(phi) * Math.sin(theta);
     }
 
     starGeo.setAttribute('position', new THREE.BufferAttribute(starPos, 3));
     this.starMat = new THREE.PointsMaterial({
       color: 0xffffff,
-      size: 1.2,
+      size: 1.3,
       transparent: true,
       opacity: 0.0,
       sizeAttenuation: true
@@ -87,87 +90,179 @@ export class DayNightCycle {
   }
 
   update(delta) {
-    // Advance time
-    this.time = (this.time + (delta / this.duration)) % 1.0;
+    this.cycleTimer = (this.cycleTimer + delta) % this.totalDuration;
 
-    // Angle: 0.0 = 6 AM, 0.25 = 12 PM (Zenith), 0.5 = 6 PM, 0.75 = 12 AM (Midnight)
-    const sunAngle = (this.time - 0.25) * Math.PI * 2;
-    const moonAngle = sunAngle + Math.PI;
-
-    // Position Sun
-    const sunX = Math.cos(sunAngle) * this.orbitRadius;
-    const sunY = Math.sin(sunAngle) * this.orbitRadius;
-    const sunZ = Math.sin(sunAngle * 0.5) * (this.orbitRadius * 0.4);
-
-    this.sunLight.position.set(sunX, sunY, sunZ);
-    this.sunMesh.position.set(sunX, sunY, sunZ);
-
-    // Position Moon
-    const moonX = Math.cos(moonAngle) * this.orbitRadius;
-    const moonY = Math.sin(moonAngle) * this.orbitRadius;
-    const moonZ = Math.sin(moonAngle * 0.5) * (this.orbitRadius * 0.4);
-
-    this.moonLight.position.set(moonX, moonY, moonZ);
-    this.moonMesh.position.set(moonX, moonY, moonZ);
-
-    // Sun altitude factor (-1 to 1)
-    const sunAlt = Math.sin(sunAngle);
-
-    // Colors and Intensity calculations
     const skyColor = new THREE.Color();
     const groundColor = new THREE.Color();
+    let fogDensity = 0.006;
 
-    if (sunAlt > 0.3) {
-      // Midday
-      skyColor.setHex(0x5ca8d6); // Crisp bright mountain sky
-      groundColor.setHex(0x3a5a40);
-      this.sunLight.color.setHex(0xfffaed);
-      this.sunLight.intensity = THREE.MathUtils.lerp(0.8, 1.4, (sunAlt - 0.3) / 0.7);
+    if (this.cycleTimer < this.dayDuration) {
+      // -------------------------------------------------------------
+      // DAYTIME (0s to 600s = exactly 10 real-world minutes)
+      // -------------------------------------------------------------
+      const dayProgress = this.cycleTimer / this.dayDuration; // 0.0 to 1.0
+      // Sun moves from eastern horizon (0) to zenith (0.5) to western horizon (1.0)
+      const sunAngle = dayProgress * Math.PI;
+
+      // Position Sun
+      const sunX = Math.cos(sunAngle) * -this.orbitRadius;
+      const sunY = Math.sin(sunAngle) * this.orbitRadius;
+      const sunZ = Math.sin(sunAngle * 0.5) * (this.orbitRadius * 0.35);
+      this.sunLight.position.set(sunX, sunY, sunZ);
+      this.sunMesh.position.set(sunX, sunY, sunZ);
+
+      // Moon below horizon during day
+      this.moonLight.position.set(-sunX, -sunY, -sunZ);
+      this.moonMesh.position.set(-sunX, -sunY, -sunZ);
       this.moonLight.intensity = 0.0;
       this.starMat.opacity = 0.0;
-    } else if (sunAlt > -0.1 && sunAlt <= 0.3) {
-      // Golden Hour / Sunrise / Sunset
-      const t = (sunAlt - (-0.1)) / 0.4;
-      // Interpolate between Sunset Orange and Daylight Blue
-      const sunsetSky = new THREE.Color(0xf97316); // Amber Sunset
-      const daySky = new THREE.Color(0x5ca8d6);
-      skyColor.copy(sunsetSky).lerp(daySky, t);
 
-      groundColor.setHex(0x2d3a24);
-      this.sunLight.color.setHex(0xff7b00);
-      this.sunLight.intensity = Math.max(0.1, t * 0.8);
-      this.moonLight.intensity = 0.05;
-      this.starMat.opacity = Math.max(0, (1 - t) * 0.3);
+      if (this.cycleTimer < 50) {
+        // Sunrise / Dawn (first 50 seconds)
+        const t = this.cycleTimer / 50;
+        const dawnSky = new THREE.Color(0xfdba74); // soft peach / rose
+        const daySky = new THREE.Color(0x52a5db);  // bright alpine blue
+        skyColor.copy(dawnSky).lerp(daySky, t);
+        groundColor.setHex(0x2d3a24);
+
+        this.sunLight.color.setHex(0xffedd5);
+        this.sunLight.intensity = THREE.MathUtils.lerp(0.3, 1.45, t);
+        this.hemiLight.intensity = THREE.MathUtils.lerp(0.35, 0.85, t);
+        fogDensity = 0.007;
+      } else if (this.cycleTimer > 530) {
+        // Sunset / Golden Hour (last 70 seconds of day)
+        const t = (this.cycleTimer - 530) / 70;
+        const daySky = new THREE.Color(0x52a5db);
+        const sunsetSky = new THREE.Color(0xea580c); // rich amber sunset
+        skyColor.copy(daySky).lerp(sunsetSky, t);
+        groundColor.setHex(0x272e1e);
+
+        this.sunLight.color.setHex(0xf97316);
+        this.sunLight.intensity = THREE.MathUtils.lerp(1.45, 0.15, t);
+        this.hemiLight.intensity = THREE.MathUtils.lerp(0.85, 0.35, t);
+        fogDensity = 0.0065;
+      } else {
+        // Full Bright Day (over 8 minutes of pristine daylight)
+        skyColor.setHex(0x52a5db); // Crisp mountain sky
+        groundColor.setHex(0x3a5a40);
+        this.sunLight.color.setHex(0xfffaed);
+        this.sunLight.intensity = 1.45;
+        this.hemiLight.intensity = 0.85;
+        fogDensity = 0.0055;
+      }
     } else {
-      // Night / Twilight
-      const nightSky = new THREE.Color(0x070b19); // Midnight dark blue
-      const twilightSky = new THREE.Color(0x1e1e38);
-      const nightFactor = Math.min(1.0, (-sunAlt - 0.1) / 0.5);
+      // -------------------------------------------------------------
+      // NIGHTTIME (600s to 960s = exactly 6 real-world minutes)
+      // -------------------------------------------------------------
+      const nightElapsed = this.cycleTimer - this.dayDuration; // 0s to 360s
+      const nightProgress = nightElapsed / this.nightDuration; // 0.0 to 1.0
+      // Moon moves from horizon (0) to zenith (0.5) to horizon (1.0)
+      const moonAngle = nightProgress * Math.PI;
 
-      skyColor.copy(twilightSky).lerp(nightSky, nightFactor);
-      groundColor.setHex(0x0a0e14);
+      // Position Moon in sky
+      const moonX = Math.cos(moonAngle) * -this.orbitRadius;
+      const moonY = Math.sin(moonAngle) * this.orbitRadius;
+      const moonZ = Math.sin(moonAngle * 0.5) * (this.orbitRadius * 0.35);
+      this.moonLight.position.set(moonX, moonY, moonZ);
+      this.moonMesh.position.set(moonX, moonY, moonZ);
+
+      // Sun below horizon
+      this.sunLight.position.set(-moonX, -moonY, -moonZ);
+      this.sunMesh.position.set(-moonX, -moonY, -moonZ);
       this.sunLight.intensity = 0.0;
-      this.moonLight.intensity = 0.35;
 
-      // Stars shine brightly with gentle shimmer
-      this.starMat.opacity = THREE.MathUtils.lerp(0.2, 0.95, nightFactor) * (0.85 + Math.sin(Date.now() * 0.003) * 0.15);
+      // True Dark Night Colors:
+      const deepNightSky = new THREE.Color(0x02050e); // deep midnight navy-black
+      const twilightSky = new THREE.Color(0x1e1b4b);   // dusk violet
+
+      if (nightElapsed < 50) {
+        // Dusk into Deep Night (first 50 seconds)
+        const t = nightElapsed / 50;
+        skyColor.copy(twilightSky).lerp(deepNightSky, t);
+        groundColor.setHex(0x060912);
+
+        this.moonLight.intensity = THREE.MathUtils.lerp(0.02, 0.16, t);
+        this.hemiLight.intensity = THREE.MathUtils.lerp(0.3, 0.10, t);
+        this.starMat.opacity = THREE.MathUtils.lerp(0.1, 0.95, t);
+        fogDensity = 0.007;
+      } else if (nightElapsed > 310) {
+        // Pre-Dawn Twilight (last 50 seconds of night)
+        const t = (nightElapsed - 310) / 50;
+        const dawnRose = new THREE.Color(0x2d1b38);
+        skyColor.copy(deepNightSky).lerp(dawnRose, t);
+        groundColor.setHex(0x070c18);
+
+        this.moonLight.intensity = THREE.MathUtils.lerp(0.16, 0.04, t);
+        this.hemiLight.intensity = THREE.MathUtils.lerp(0.10, 0.25, t);
+        this.starMat.opacity = THREE.MathUtils.lerp(0.95, 0.2, t);
+        fogDensity = 0.0072;
+      } else {
+        // True Starry Night (deep dark sky, visible stars, dimmed ambient light)
+        skyColor.copy(deepNightSky);
+        groundColor.setHex(0x020409);
+
+        // Dimmed ambient / directional moonlight so campfire & lanterns shine!
+        this.moonLight.color.setHex(0x8ab4f8);
+        this.moonLight.intensity = 0.16;
+        this.hemiLight.color.copy(skyColor);
+        this.hemiLight.groundColor.copy(groundColor);
+        this.hemiLight.intensity = 0.09;
+
+        // Twinkling brilliant starry night
+        const twinkle = 0.88 + Math.sin(Date.now() * 0.0025) * 0.12;
+        this.starMat.opacity = 0.98 * twinkle;
+        fogDensity = 0.0075;
+      }
     }
 
     // Apply colors to Scene, Fog, and Hemisphere Light
     this.scene.background = skyColor;
     if (this.scene.fog) {
       this.scene.fog.color.copy(skyColor);
+      this.scene.fog.density = fogDensity;
     }
-
     this.hemiLight.color.copy(skyColor);
     this.hemiLight.groundColor.copy(groundColor);
-    this.hemiLight.intensity = Math.max(0.25, Math.sin(sunAngle) * 0.6 + 0.4);
   }
 
   getClockInfo() {
-    // Convert this.time (0 to 1) to 24h clock string
-    // 0 = 6:00 AM
-    let totalMinutes = ((this.time * 24 + 6) % 24) * 60;
+    let totalMinutes;
+    let icon = '☀️';
+    let phase = 'Day';
+
+    if (this.cycleTimer < this.dayDuration) {
+      // Daytime (600s) -> maps from 6:00 AM (360m) to 8:00 PM (1200m)
+      const dayFraction = this.cycleTimer / this.dayDuration;
+      totalMinutes = 6 * 60 + dayFraction * 14 * 60;
+
+      if (this.cycleTimer < 50) {
+        icon = '🌅';
+        phase = 'Dawn';
+      } else if (this.cycleTimer > 530) {
+        icon = '🌇';
+        phase = 'Sunset';
+      } else {
+        icon = '☀️';
+        phase = 'Day';
+      }
+    } else {
+      // Nighttime (360s) -> maps from 8:00 PM (1200m) to 6:00 AM (360m)
+      const nightFraction = (this.cycleTimer - this.dayDuration) / this.nightDuration;
+      totalMinutes = (20 * 60 + nightFraction * 10 * 60) % (24 * 60);
+
+      const nightElapsed = this.cycleTimer - this.dayDuration;
+      if (nightElapsed < 50) {
+        icon = '🌆';
+        phase = 'Dusk';
+      } else if (nightElapsed > 310) {
+        icon = '🌌';
+        phase = 'Twilight';
+      } else {
+        icon = '🌙';
+        phase = 'Night';
+      }
+    }
+
     let hours = Math.floor(totalMinutes / 60);
     let minutes = Math.floor(totalMinutes % 60);
 
@@ -176,28 +271,12 @@ export class DayNightCycle {
     const dispMinutes = minutes.toString().padStart(2, '0');
     const ampm = isPM ? 'PM' : 'AM';
 
-    let icon = '☀️';
-    let phase = 'Day';
-
-    if (hours >= 5 && hours < 8) {
-      icon = '🌅';
-      phase = 'Dawn';
-    } else if (hours >= 8 && hours < 17) {
-      icon = '☀️';
-      phase = 'Day';
-    } else if (hours >= 17 && hours < 20) {
-      icon = '🌇';
-      phase = 'Golden Hour';
-    } else if (hours >= 20 || hours < 5) {
-      icon = '🌙';
-      phase = 'Night';
-    }
-
     return {
       timeStr: `${dispHours}:${dispMinutes} ${ampm}`,
       icon,
       phase,
-      rawTime: this.time
+      rawTime: this.cycleTimer / this.totalDuration,
+      isNight: this.cycleTimer >= this.dayDuration
     };
   }
 }

@@ -67,7 +67,7 @@ class CampfireGame {
 
     // 4. World & Environment
     this.world = new CampsiteWorld(this.scene);
-    this.dayNight = new DayNightCycle(this.scene, 210); // ~3.5 min cycle
+    this.dayNight = new DayNightCycle(this.scene); // 16 min cycle: 10 min day + 6 min night
     this.remotePlayers = new RemotePlayerManager(this.scene);
 
     // 5. Window Resize
@@ -107,13 +107,14 @@ class CampfireGame {
       this.localPlayerModel
     );
 
-    // Initial spawn position: near the campfire clearing
+    // Initial spawn position: near the campfire clearing firmly on the terrain
     const spawnAngle = Math.random() * Math.PI * 2;
     const spawnDist = 4.2 + Math.random() * 2.0;
     const spawnX = Math.cos(spawnAngle) * spawnDist;
     const spawnZ = Math.sin(spawnAngle) * spawnDist;
-    const spawnY = this.world.getTerrainHeight(spawnX, spawnZ) + 0.1;
+    const spawnY = this.world.getGroundHeight(spawnX, spawnZ);
     this.playerController.position.set(spawnX, spawnY, spawnZ);
+    this.playerController.isGrounded = true;
 
     // 3. Interactions Manager
     this.interactions = new InteractionManager(

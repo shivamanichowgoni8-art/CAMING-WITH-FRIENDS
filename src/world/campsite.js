@@ -16,7 +16,13 @@ export class CampsiteWorld {
     this.waterLevel = -0.1; // y elevation of lake surface
 
     // Campfire position
-    this.campfirePos = new THREE.Vector3(0, 0.2, 0);
+    const campY = this.getTerrainHeight(0, 0);
+    this.campfirePos = new THREE.Vector3(0, campY, 0);
+
+    // Downward terrain surface raycaster for exact ground snapping
+    this.downRay = new THREE.Raycaster();
+    this.rayOrigin = new THREE.Vector3();
+    this.downDir = new THREE.Vector3(0, -1, 0);
 
     this.buildTerrain();
     this.buildLake();
@@ -24,6 +30,19 @@ export class CampsiteWorld {
     this.buildMountainPeakAndTrail();
     this.buildForest();
     this.buildScenicDecorations();
+  }
+
+  // Exact terrain surface height at (x, z) using terrain mesh raycasting with mathematical fallback
+  getGroundHeight(x, z) {
+    if (this.terrainMesh) {
+      this.rayOrigin.set(x, 40, z);
+      this.downRay.set(this.rayOrigin, this.downDir);
+      const hits = this.downRay.intersectObject(this.terrainMesh, false);
+      if (hits.length > 0) {
+        return hits[0].point.y;
+      }
+    }
+    return this.getTerrainHeight(x, z);
   }
 
   // Procedural heightmap function for the terrain
@@ -372,9 +391,9 @@ export class CampsiteWorld {
       const logGroup = new THREE.Group();
       const lx = Math.cos(angle) * logDistance;
       const lz = Math.sin(angle) * logDistance;
-      const ly = this.getTerrainHeight(lx, lz);
+      const ly = this.getGroundHeight(lx, lz);
 
-      logGroup.position.set(lx, ly + 0.25, lz);
+      logGroup.position.set(lx, ly + 0.22, lz);
       logGroup.rotation.y = angle + Math.PI / 2;
 
       // Rustic chopped log bench
@@ -384,18 +403,18 @@ export class CampsiteWorld {
       benchLog.castShadow = true;
       logGroup.add(benchLog);
 
-      // Log legs
-      const legGeo = new THREE.CylinderGeometry(0.12, 0.12, 0.45, 5);
+      // Log legs extended into ground
+      const legGeo = new THREE.CylinderGeometry(0.12, 0.12, 0.65, 5);
       const leg1 = new THREE.Mesh(legGeo, woodMat);
-      leg1.position.set(-0.7, -0.15, 0);
+      leg1.position.set(-0.7, -0.22, 0);
       const leg2 = new THREE.Mesh(legGeo, woodMat);
-      leg2.position.set(0.7, -0.15, 0);
+      leg2.position.set(0.7, -0.22, 0);
       logGroup.add(leg1, leg2);
 
       this.scene.add(logGroup);
 
       // Register Sitting Spot interactable
-      const sitWorldPos = new THREE.Vector3(lx, ly + 0.35, lz);
+      const sitWorldPos = new THREE.Vector3(lx, ly + 0.32, lz);
       this.interactables.push({
         type: 'sit_log',
         id: `sit_${idx}`,
@@ -415,16 +434,16 @@ export class CampsiteWorld {
 
   createTent(x, y, z, rotationY, colorHex) {
     const tentGroup = new THREE.Group();
-    const groundY = this.getTerrainHeight(x, z);
+    const groundY = this.getGroundHeight(x, z);
     tentGroup.position.set(x, groundY, z);
     tentGroup.rotation.y = rotationY;
 
-    // A-frame canvas tent geometry
-    const tentGeo = new THREE.ConeGeometry(2.2, 2.2, 4);
+    // A-frame canvas tent geometry with skirt extending slightly below ground level
+    const tentGeo = new THREE.ConeGeometry(2.2, 2.5, 4);
     tentGeo.rotateY(Math.PI / 4);
+    tentGeo.translate(0, 1.05, 0); // extends -0.2m into ground so no gap on slopes
     const tentMat = new THREE.MeshLambertMaterial({ color: colorHex, flatShading: true });
     const tent = new THREE.Mesh(tentGeo, tentMat);
-    tent.position.y = 1.1;
     tent.castShadow = true;
     tentGroup.add(tent);
 
@@ -590,7 +609,7 @@ export class CampsiteWorld {
     ];
 
     treePositions.forEach((pos, idx) => {
-      const y = this.getTerrainHeight(pos.x, pos.z);
+      const y = this.getGroundHeight(pos.x, pos.z);
       if (y > 0.3 && y < 11.0) {
         this.createPineTree(idx, pos.x, y, pos.z);
       }
@@ -605,10 +624,10 @@ export class CampsiteWorld {
     const scale = 0.85 + Math.random() * 0.45;
     treeGroup.scale.set(scale, scale, scale);
 
-    // Trunk
+    // Trunk extending down into ground to prevent floating on slopes
     const trunkMat = new THREE.MeshLambertMaterial({ color: 0x5c4033, flatShading: true });
-    const trunkGeo = new THREE.CylinderGeometry(0.3, 0.45, 2.2, 6);
-    trunkGeo.translate(0, 1.1, 0);
+    const trunkGeo = new THREE.CylinderGeometry(0.3, 0.48, 2.6, 6);
+    trunkGeo.translate(0, 0.9, 0); // extends -0.4m into ground
     const trunk = new THREE.Mesh(trunkGeo, trunkMat);
     trunk.castShadow = true;
     treeGroup.add(trunk);
@@ -701,8 +720,9 @@ export class CampsiteWorld {
   }
 
   spawnFirewoodLog(x, y, z) {
+    const groundY = this.getGroundHeight(x, z);
     const logGroup = new THREE.Group();
-    logGroup.position.set(x, y + 0.12, z);
+    logGroup.position.set(x, groundY + 0.08, z);
 
     const logGeo = new THREE.CylinderGeometry(0.12, 0.12, 0.7, 6);
     logGeo.rotateZ(Math.PI / 2);
@@ -731,7 +751,7 @@ export class CampsiteWorld {
       id: logId,
       group: logGroup,
       halo,
-      position: new THREE.Vector3(x, y + 0.12, z),
+      position: new THREE.Vector3(x, groundY + 0.08, z),
       time: 0
     };
     this.droppedLogs.push(logItem);
@@ -769,18 +789,18 @@ export class CampsiteWorld {
   }
 
   buildScenicDecorations() {
-    // Scattered low-poly granite boulders
+    // Scattered low-poly granite boulders embedded flush in terrain
     const rockMat = new THREE.MeshLambertMaterial({ color: 0x78716c, flatShading: true });
     for (let i = 0; i < 25; i++) {
       const rx = (Math.random() - 0.5) * 90;
       const rz = (Math.random() - 0.5) * 90;
       // Don't place rocks directly in lake or center fire
       if (Math.sqrt(rx * rx + rz * rz) > 4 && Math.sqrt((rx - 28) ** 2 + (rz - 22) ** 2) > 22) {
-        const ry = this.getTerrainHeight(rx, rz);
+        const ry = this.getGroundHeight(rx, rz);
         const rockScale = 0.5 + Math.random() * 1.2;
         const rockGeo = new THREE.DodecahedronGeometry(rockScale, 0);
         const rock = new THREE.Mesh(rockGeo, rockMat);
-        rock.position.set(rx, ry + rockScale * 0.4, rz);
+        rock.position.set(rx, ry + rockScale * 0.25, rz);
         rock.rotation.set(Math.random(), Math.random(), Math.random());
         rock.castShadow = true;
         this.scene.add(rock);

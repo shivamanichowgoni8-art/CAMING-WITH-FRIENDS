@@ -21,18 +21,23 @@ A cozy, low-poly 3D multiplayer browser camping game for up to 5 friends built w
 - **Scenic Mountain Hiking Trail**: Winding switchback trail with wooden markers leading up to **Eagle Peak** (lookout deck, summit bench, telescope, and pennant flag).
 - **Choppable Pine Forest**: 30+ low-poly coniferous pine trees with trunk health, wobble physics, wood-chip particles, and falling firewood logs.
 - **Lake Area**: Low-poly water with gentle wave motion, shoreline reeds, and a wooden fishing dock/pier.
-- **Smooth Day-to-Night Lighting Cycle**: Moving sun and moon, dynamic sky and fog gradients (Dawn, Noon, Sunset, Dusk, Midnight), 650+ twinkling stars at night, and warm campfire lighting that glows brighter when firewood is added.
+- **Smooth 16-Minute Day-to-Night Lighting Cycle**:
+  - **10-Minute Daytime (600s)**: Bright sunny skies, warm atmospheric mountain colors, clear visibility, and crisp directional sunlight.
+  - **6-Minute Nighttime (360s)**: Seamless transition to a true dark starry night with a deep navy-black sky, 700+ twinkling stars, dimmed cool moonlight, and warm glowing campfire and lantern lights.
+  - **Synchronized HUD Clock**: Automatically stays in sync with the 16-minute day/night cycle.
+- **Exact Terrain Surface Snapping**: Zero floating gap—character feet sit firmly on the ground surface using terrain mesh raycasting, and trees, rocks, campfire logs, and tents sit completely flush with the terrain.
 
-### 3. PC & Mobile Touch Controls + Interactions
+### 3. Full 360° Free-Orbit Camera & Controls
 - **PC Controls**:
-  - `W`, `A`, `S`, `D` / Arrows: Move
+  - Click & Drag anywhere on canvas (or pointer lock): Smooth **360° free orbit camera** with clamped vertical pitch and ground anti-clipping.
+  - Mouse Scroll Wheel: Smooth camera zoom in/out.
+  - `W`, `A`, `S`, `D` / Arrows: Move character relative to camera orientation.
   - `Shift`: Sprint
   - `Space`: Jump / Stand up
-  - Mouse Drag / Pointer Lock: Look around smoothly
   - `E`: Contextual interaction (Chop, Fish, Pick up log, Add firewood, Sit)
 - **Mobile Touch Controls**:
+  - Drag one finger on the right side of the screen to smoothly rotate the camera 360 degrees.
   - Virtual Joystick on the bottom-left with draggable thumb knob.
-  - Camera touch-drag area on the right half of the screen.
   - Large contextual **Interact** button and **Jump** button.
 - **Contextual Interactions**:
   - **Chop Tree**: Swings axe, tree shakes, drops firewood logs.
