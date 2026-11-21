@@ -1,10 +1,14 @@
 import * as THREE from 'three';
 import { soundFX } from '../utils/soundFX.js';
 import { LakeFishSchool } from './lakeFish.js';
+import { createPRNG } from '../utils/prng.js';
 
 export class CampsiteWorld {
-  constructor(scene) {
+  constructor(scene, seed = 1337) {
     this.scene = scene;
+    this.seed = seed;
+    this.prng = createPRNG(seed);
+
     this.colliders = []; // objects with radius / bounding box for collision
     this.interactables = []; // trees, logs, campfire, fishing dock, sit logs, cabin door
     this.walkableObjects = []; // terrain, dock planks, cabin floor, porch, steps
@@ -967,9 +971,26 @@ export class CampsiteWorld {
     parent.add(sign);
   }
 
+  reseed(seed) {
+    if (this.seed === seed) return;
+    this.seed = seed;
+    this.prng = createPRNG(seed);
+
+    // Remove existing trees from scene
+    this.trees.forEach(t => {
+      this.scene.remove(t.group);
+    });
+    this.trees = [];
+    this.interactables = this.interactables.filter(i => i.type !== 'tree');
+    this.colliders = this.colliders.filter(c => !c.isTreeCollider);
+
+    // Rebuild forest with new seed
+    this.buildForest();
+  }
+
   buildForest() {
     // Choppable Pine Trees in forest clusters
-    // We place ~35 trees across the map avoiding the lake, campfire center, and hiking trail
+    // We place ~30 trees across the map avoiding the lake, campfire center, and hiking trail
     const treePositions = [
       // East woods
       { x: 14, z: -12 }, { x: 19, z: -16 }, { x: 23, z: -8 }, { x: 15, z: -24 },
@@ -997,8 +1018,8 @@ export class CampsiteWorld {
     const treeGroup = new THREE.Group();
     treeGroup.position.set(x, y, z);
 
-    // Randomize slight tree scale & tint
-    const scale = 0.85 + Math.random() * 0.45;
+    // Deterministic tree scale & tint from PRNG
+    const scale = 0.85 + this.prng.next() * 0.45;
     treeGroup.scale.set(scale, scale, scale);
 
     // Trunk extending down into ground to prevent floating on slopes
@@ -1053,11 +1074,12 @@ export class CampsiteWorld {
       actionText: 'Chop Tree'
     });
 
-    // Add collider
+    // Add collider marked as tree
     this.colliders.push({
       x,
       z,
-      radius: 0.7 * scale
+      radius: 0.7 * scale,
+      isTreeCollider: true
     });
   }
 
@@ -1166,19 +1188,20 @@ export class CampsiteWorld {
   }
 
   buildScenicDecorations() {
-    // Scattered low-poly granite boulders embedded flush in terrain
+    // Scattered low-poly granite boulders embedded flush in terrain (seeded)
     const rockMat = new THREE.MeshLambertMaterial({ color: 0x78716c, flatShading: true });
+    const rockPRNG = this.prng.fork('boulders');
     for (let i = 0; i < 25; i++) {
-      const rx = (Math.random() - 0.5) * 90;
-      const rz = (Math.random() - 0.5) * 90;
+      const rx = (rockPRNG.next() - 0.5) * 90;
+      const rz = (rockPRNG.next() - 0.5) * 90;
       // Don't place rocks directly in lake or center fire
       if (Math.sqrt(rx * rx + rz * rz) > 4 && Math.sqrt((rx - 28) ** 2 + (rz - 22) ** 2) > 22) {
         const ry = this.getGroundHeight(rx, rz);
-        const rockScale = 0.5 + Math.random() * 1.2;
+        const rockScale = 0.5 + rockPRNG.next() * 1.2;
         const rockGeo = new THREE.DodecahedronGeometry(rockScale, 0);
         const rock = new THREE.Mesh(rockGeo, rockMat);
         rock.position.set(rx, ry + rockScale * 0.25, rz);
-        rock.rotation.set(Math.random(), Math.random(), Math.random());
+        rock.rotation.set(rockPRNG.next() * Math.PI, rockPRNG.next() * Math.PI, rockPRNG.next() * Math.PI);
         rock.castShadow = true;
         this.scene.add(rock);
 
@@ -1186,6 +1209,58 @@ export class CampsiteWorld {
           this.colliders.push({ x: rx, z: rz, radius: rockScale * 0.8 });
         }
       }
+    }
+  }
+
+  // -------------------------------------------------------------
+  // Late-Join Snapshot Gathering & Hydration
+  // -------------------------------------------------------------
+  getSnapshotData() {
+    return {
+      seed: this.seed,
+      trees: this.trees.map(t => ({
+        id: t.id,
+        health: t.health,
+        isChopped: t.isChopped,
+        respawnTimer: Math.ceil(t.respawnTimer || 0)
+      })),
+      droppedLogs: this.droppedLogs.map(l => ({
+        id: l.id,
+        x: l.position.x,
+        y: l.position.y,
+        z: l.position.z
+      })),
+      fireFuel: this.campfireLevel,
+      cabinDoorOpen: this.cabinDoorOpen
+    };
+  }
+
+  applySnapshot(snapshot) {
+    if (!snapshot) return;
+
+    if (snapshot.seed && snapshot.seed !== this.seed) {
+      this.reseed(snapshot.seed);
+    }
+
+    if (snapshot.trees && Array.isArray(snapshot.trees)) {
+      snapshot.trees.forEach(st => {
+        const tree = this.trees.find(t => t.id === st.id);
+        if (tree) {
+          tree.health = st.health;
+          tree.isChopped = st.isChopped;
+          tree.respawnTimer = st.respawnTimer;
+          tree.group.visible = !st.isChopped;
+        }
+      });
+    }
+
+    if (snapshot.fireFuel !== undefined) {
+      this.campfireLevel = snapshot.fireFuel;
+      this.campfireTargetLevel = snapshot.fireFuel;
+    }
+
+    if (snapshot.cabinDoorOpen !== undefined) {
+      this.setCabinDoorState(snapshot.cabinDoorOpen);
     }
   }
 

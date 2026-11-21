@@ -1,4 +1,5 @@
 import { soundFX } from '../utils/soundFX.js';
+import { EVENT_TYPES } from '../net/eventSync.js';
 
 export const FISH_TYPES = [
   { name: 'Rainbow Trout', rarity: 'Common', minWeight: 1.2, maxWeight: 2.8, color: '#60a5fa' },
@@ -8,11 +9,12 @@ export const FISH_TYPES = [
 ];
 
 export class InteractionManager {
-  constructor(world, playerController, partyGameManager, networkManager) {
+  constructor(world, playerController, partyGameManager, networkManager, eventSync = null) {
     this.world = world;
     this.player = playerController;
     this.partyGames = partyGameManager;
     this.network = networkManager;
+    this.eventSync = eventSync;
 
     // Fishing mini-game active state
     this.isFishing = false;
@@ -28,6 +30,10 @@ export class InteractionManager {
     this.onFishingStateChanged = null;
     this.onPartyGameOpen = null;
     this.onInventoryChanged = null;
+  }
+
+  setEventSync(eventSync) {
+    this.eventSync = eventSync;
   }
 
   // Triggered when player presses [E] or touches Interact button
@@ -63,12 +69,18 @@ export class InteractionManager {
   }
 
   toggleCabinDoor() {
-    const isOpen = this.world.toggleCabinDoor();
-    if (this.network) {
-      this.network.broadcast({
-        type: 'cabin_door_toggle',
-        isOpen
+    if (this.eventSync) {
+      this.eventSync.dispatch(EVENT_TYPES.DOOR_TOGGLE, {
+        isOpen: !this.world.cabinDoorOpen
       });
+    } else {
+      const isOpen = this.world.toggleCabinDoor();
+      if (this.network) {
+        this.network.broadcast({
+          type: 'cabin_door_toggle',
+          isOpen
+        });
+      }
     }
   }
 
@@ -85,45 +97,57 @@ export class InteractionManager {
       }
     }, 700);
 
-    const result = this.world.chopTree(treeItem.id);
-    if (!result) return;
+    if (this.eventSync) {
+      this.eventSync.dispatch(EVENT_TYPES.CHOP, { treeId: treeItem.id });
+    } else {
+      const result = this.world.chopTree(treeItem.id);
+      if (!result) return;
 
-    if (this.network) {
-      this.network.broadcast({
-        type: 'tree_chopped',
-        treeId: treeItem.id
-      });
-    }
+      if (this.network) {
+        this.network.broadcast({
+          type: 'tree_chopped',
+          treeId: treeItem.id
+        });
+      }
 
-    if (result.felled) {
-      // Broadcast dropped logs to peers
-      result.logs.forEach(log => {
-        if (this.network) {
-          this.network.broadcast({
-            type: 'log_dropped',
-            logId: log.id,
-            x: log.position.x,
-            y: log.position.y,
-            z: log.position.z
-          });
-        }
-      });
+      if (result.felled) {
+        result.logs.forEach(log => {
+          if (this.network) {
+            this.network.broadcast({
+              type: 'log_dropped',
+              logId: log.id,
+              x: log.position.x,
+              y: log.position.y,
+              z: log.position.z
+            });
+          }
+        });
+      }
     }
   }
 
   pickupLog(logItem) {
-    this.world.removeDroppedLog(logItem.id);
-    this.player.inventory.firewood++;
-    soundFX.playPop();
-
-    if (this.onInventoryChanged) this.onInventoryChanged(this.player.inventory);
-
-    if (this.network) {
-      this.network.broadcast({
-        type: 'log_picked',
-        logId: logItem.id,
-        peerId: this.network.myPeerId
+    if (this.eventSync) {
+      this.eventSync.dispatch(EVENT_TYPES.PICKUP, {
+        itemId: logItem.id,
+        x: logItem.position.x,
+        y: logItem.position.y,
+        z: logItem.position.z
       });
+    } else {
+      this.world.removeDroppedLog(logItem.id);
+      this.player.inventory.firewood++;
+      soundFX.playPop();
+
+      if (this.onInventoryChanged) this.onInventoryChanged(this.player.inventory);
+
+      if (this.network) {
+        this.network.broadcast({
+          type: 'log_picked',
+          logId: logItem.id,
+          peerId: this.network.myPeerId
+        });
+      }
     }
   }
 
@@ -131,15 +155,22 @@ export class InteractionManager {
     if (this.player.inventory.firewood <= 0) return;
 
     this.player.inventory.firewood--;
-    this.world.boostCampfire(0.6);
-
     if (this.onInventoryChanged) this.onInventoryChanged(this.player.inventory);
 
-    if (this.network) {
-      this.network.broadcast({
-        type: 'fire_boosted',
-        amount: 0.6
-      });
+    if (this.eventSync) {
+      this.eventSync.dispatch(EVENT_TYPES.ADD_LOG, { amount: 0.6 });
+    } else {
+      this.world.boostCampfire(0.6);
+
+      if (this.network) {
+        this.network.broadcast({
+          type: 'fire_boosted',
+          amount: 0.6
+        });
+      }
+    }
+
+    if (this.network && this.partyGames) {
       this.partyGames.addChatMessage('System', `🔥 ${this.player.model.name} added firewood to the campfire!`);
     }
   }

@@ -24,6 +24,10 @@ export class PeerNetworkManager {
     this.speakingCheckInterval = null;
     this.isSpeaking = false;
 
+    // Deterministic simulation & state sync
+    this.worldSeed = null;
+    this.roomStartTime = 0;
+
     // Callbacks to external game systems
     this.onPlayerJoined = null;
     this.onPlayerLeft = null;
@@ -32,10 +36,19 @@ export class PeerNetworkManager {
     this.onLogDropped = null;
     this.onLogPicked = null;
     this.onCampfireBoosted = null;
+    this.onCabinDoorToggled = null;
     this.onPartyGameSync = null;
     this.onChatMessage = null;
     this.onNotification = null;
     this.onSpeakingState = null;
+
+    // Event sync & Snapshot callbacks
+    this.onEventRequest = null;
+    this.onEventConfirmed = null;
+    this.onEventRejected = null;
+    this.onSnapshotSync = null;
+    this.onResyncRequest = null;
+    this.onGetSnapshot = null;
   }
 
   // Sanitize room name to valid PeerJS ID characters (alphanumeric + hyphen)
@@ -50,6 +63,10 @@ export class PeerNetworkManager {
     this.roomPassword = password;
     this.playerName = playerName;
     this.characterId = characterId;
+
+    // Generate deterministic seed and timestamp for all campers in this room
+    this.worldSeed = Math.floor(Math.random() * 2147483647);
+    this.roomStartTime = Date.now();
 
     const hostPeerId = this.cleanId(roomName);
 
@@ -125,6 +142,8 @@ export class PeerNetworkManager {
         conn.on('data', (data) => {
           if (data.type === 'auth_accepted') {
             console.log('[Network] Authentication accepted by host!');
+            this.worldSeed = data.worldSeed;
+            this.roomStartTime = data.roomStartTime;
             this.handleData(data, hostPeerId);
 
             // Connect voice call to host if we have audio stream
@@ -212,8 +231,21 @@ export class PeerNetworkManager {
             name: this.playerName,
             characterId: this.characterId
           },
-          existingPlayers
+          existingPlayers,
+          worldSeed: this.worldSeed,
+          roomStartTime: this.roomStartTime
         });
+
+        // Send compact late-join snapshot if available
+        if (this.onGetSnapshot) {
+          const snapshot = this.onGetSnapshot();
+          if (snapshot) {
+            conn.send({
+              type: 'snapshot_sync',
+              snapshot
+            });
+          }
+        }
 
         // Notify existing players about the newcomer
         this.broadcast({
@@ -352,6 +384,36 @@ export class PeerNetworkManager {
         if (this.onSpeakingState) this.onSpeakingState(senderPeerId, data.isSpeaking, data.level);
         if (this.isHost) this.broadcast(data, senderPeerId);
         break;
+
+      // Event-Sync & Snapshot architecture
+      case 'event_request':
+        if (this.onEventRequest) this.onEventRequest(senderPeerId, data);
+        break;
+
+      case 'event_confirmed':
+        if (this.onEventConfirmed) this.onEventConfirmed(senderPeerId, data);
+        if (this.isHost) this.broadcast(data, senderPeerId);
+        break;
+
+      case 'event_rejected':
+        if (this.onEventRejected) this.onEventRejected(senderPeerId, data);
+        break;
+
+      case 'snapshot_sync':
+        if (this.onSnapshotSync) this.onSnapshotSync(senderPeerId, data.snapshot);
+        break;
+
+      case 'resync_request':
+        if (this.onResyncRequest) this.onResyncRequest(senderPeerId, data);
+        break;
+    }
+  }
+
+  // Send data directly to a single peer
+  sendToPeer(peerId, data) {
+    const conn = this.connections.get(peerId);
+    if (conn && conn.open) {
+      conn.send(data);
     }
   }
 

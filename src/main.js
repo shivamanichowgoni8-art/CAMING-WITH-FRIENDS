@@ -10,6 +10,7 @@ import { PartyGameManager } from './games/partyGames.js';
 import { LobbyUI } from './ui/lobbyUI.js';
 import { HudUI } from './ui/hudUI.js';
 import { soundFX } from './utils/soundFX.js';
+import { EventSyncManager, EVENT_TYPES } from './net/eventSync.js';
 
 class CampfireGame {
   constructor() {
@@ -29,10 +30,13 @@ class CampfireGame {
     this.partyGames = null;
     this.interactions = null;
     this.hud = null;
+    this.eventSync = null;
 
     this.clock = new THREE.Clock();
     this.isGameRunning = false;
     this.netSyncTimer = 0;
+    this.ecoTickAccumulator = 0;
+    this.worldTime = 0; // deterministic ecosystem elapsed seconds
 
     this.initThree();
     this.initLobby();
@@ -156,7 +160,101 @@ class CampfireGame {
       this.hud.showToast(`🎒 Joined room "${roomName}"! Welcome to the campsite.`, 'info');
     }
 
+    // Initialize Event-Sync architecture & deterministic world seed
+    this.setupEventSync(isHost);
+
+    if (this.network.worldSeed) {
+      this.world.reseed(this.network.worldSeed);
+    }
+
     this.isGameRunning = true;
+  }
+
+  setupEventSync(isHost) {
+    this.eventSync = new EventSyncManager({
+      isHost,
+      peerId: this.network.myPeerId,
+      network: this.network,
+      onApplyEvent: (event, seq) => {
+        this.applyEvent(event, seq);
+      },
+      getSnapshotData: () => {
+        return {
+          ...this.world.getSnapshotData(),
+          worldTime: this.worldTime
+        };
+      },
+      onApplySnapshot: (snapshot) => {
+        this.worldTime = snapshot.worldTime || 0;
+        this.world.applySnapshot(snapshot);
+      }
+    });
+
+    // Provide host snapshot hook
+    this.network.onGetSnapshot = () => this.eventSync.createSnapshot();
+
+    // Link event sync to interaction manager
+    if (this.interactions) {
+      this.interactions.setEventSync(this.eventSync);
+    }
+  }
+
+  applyEvent(event, seq) {
+    switch (event.type) {
+      case EVENT_TYPES.CHOP: {
+        const result = this.world.chopTree(event.payload.treeId);
+        break;
+      }
+
+      case EVENT_TYPES.PICKUP: {
+        this.world.removeDroppedLog(event.payload.itemId);
+        if (event.senderId === this.network.myPeerId) {
+          this.playerController.inventory.firewood++;
+          soundFX.playPop();
+          if (this.interactions.onInventoryChanged) {
+            this.interactions.onInventoryChanged(this.playerController.inventory);
+          }
+        }
+        break;
+      }
+
+      case EVENT_TYPES.ADD_LOG: {
+        this.world.boostCampfire(event.payload.amount || 0.6);
+        break;
+      }
+
+      case EVENT_TYPES.DOOR_TOGGLE: {
+        this.world.setCabinDoorState(event.payload.isOpen);
+        break;
+      }
+
+      default:
+        console.log(`[EventSync] Confirmed event #${seq}: ${event.type}`, event.payload);
+        break;
+    }
+  }
+
+  tickEcosystem() {
+    // 1 Hz deterministic ecosystem tick
+    if (this.world) {
+      // Natural slow decay of campfire target level (once per second)
+      if (this.world.campfireTargetLevel > 1.0) {
+        this.world.campfireTargetLevel = Math.max(1.0, this.world.campfireTargetLevel - 0.015);
+      }
+
+      // Tree respawn 1-second countdown
+      this.world.trees.forEach(tree => {
+        if (tree.isChopped && tree.respawnTimer > 0) {
+          tree.respawnTimer -= 1.0;
+          if (tree.respawnTimer <= 0) {
+            tree.isChopped = false;
+            tree.health = 3;
+            tree.group.visible = true;
+            tree.group.scale.set(0.1, 0.1, 0.1);
+          }
+        }
+      });
+    }
   }
 
   setupNetworkCallbacks() {
@@ -241,6 +339,14 @@ class CampfireGame {
     }
 
     if (this.isGameRunning) {
+      // 0. Tick Deterministic Ecosystem once per second (1 Hz)
+      this.ecoTickAccumulator += delta;
+      while (this.ecoTickAccumulator >= 1.0) {
+        this.ecoTickAccumulator -= 1.0;
+        this.worldTime += 1;
+        this.tickEcosystem();
+      }
+
       // 1. Update Local Player Controller & Physics
       if (this.playerController) {
         this.playerController.update(delta);
