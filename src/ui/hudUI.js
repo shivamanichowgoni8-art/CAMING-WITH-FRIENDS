@@ -1,14 +1,16 @@
 import { TRIVIA_PUZZLES, CONVERSATION_DECK } from '../games/partyGames.js';
 import { soundFX } from '../utils/soundFX.js';
+import { ITEMS } from '../data/items.js';
 
 export class HudUI {
-  constructor(container, { network, player, interaction, partyGames, dayNight }) {
+  constructor(container, { network, player, interaction, partyGames, dayNight, craftingUI = null }) {
     this.container = container;
     this.network = network;
     this.player = player;
     this.interaction = interaction;
     this.partyGames = partyGames;
     this.dayNight = dayNight;
+    this.craftingUI = craftingUI;
 
     this.isPartyGameOpen = false;
     this.isMicActive = true;
@@ -61,17 +63,52 @@ export class HudUI {
           </div>
         </header>
 
-        <!-- 2. Inventory Display -->
-        <div class="hud-inventory-bar">
-          <div class="inv-item">
-            <span class="inv-icon">🪵</span>
-            <span class="inv-label">Firewood:</span>
-            <span id="inv-wood-count" class="inv-val">0</span>
+        <!-- 2. Inventory & Survival Stats Bar -->
+        <div class="hud-stats-inventory-wrapper">
+          <!-- Cozy Survival Meters -->
+          <div id="survival-meters" class="survival-meters">
+            <div class="stat-bar-group" title="Warmth: Stay near campfire or inside cabin!">
+              <div class="stat-bar-icon">🔥</div>
+              <div class="stat-bar-track warmth-track">
+                <div id="bar-warmth" class="stat-bar-fill warmth-fill" style="width: 100%;"></div>
+              </div>
+              <span id="text-warmth" class="stat-bar-val">100%</span>
+            </div>
+
+            <div class="stat-bar-group" title="Energy: Depletes when sprinting and chopping. Eat food to restore!">
+              <div class="stat-bar-icon">⚡</div>
+              <div class="stat-bar-track energy-track">
+                <div id="bar-energy" class="stat-bar-fill energy-fill" style="width: 100%;"></div>
+              </div>
+              <span id="text-energy" class="stat-bar-val">100%</span>
+            </div>
+
+            <div class="stat-bar-group" title="Comfort: Sitting by campfire and relaxing inside cabin increases comfort.">
+              <div class="stat-bar-icon">💖</div>
+              <div class="stat-bar-track comfort-track">
+                <div id="bar-comfort" class="stat-bar-fill comfort-fill" style="width: 100%;"></div>
+              </div>
+              <span id="text-comfort" class="stat-bar-val">100%</span>
+            </div>
           </div>
-          <div class="inv-item">
-            <span class="inv-icon">🐟</span>
-            <span class="inv-label">Fish:</span>
-            <span id="inv-fish-count" class="inv-val">0</span>
+        </div>
+
+        <!-- 2b. Bottom 9-Slot Minecraft-style Hotbar -->
+        <div class="hud-bottom-dock">
+          <div class="hotbar-wrapper">
+            <button id="btn-open-crafting" class="dock-shortcut-btn" title="Open Crafting Menu [C]">
+              <span>🔨</span>
+              <span class="dock-shortcut-label">Craft [C]</span>
+            </button>
+
+            <div id="hotbar-slots-container" class="hotbar-slots-container">
+              <!-- 9 hotbar slots injected dynamically -->
+            </div>
+
+            <button id="btn-open-backpack" class="dock-shortcut-btn" title="Open Backpack [B]">
+              <span>🎒</span>
+              <span class="dock-shortcut-label">Pack [B]</span>
+            </button>
           </div>
         </div>
 
@@ -118,6 +155,10 @@ export class HudUI {
 
           <!-- Action Buttons (Right side) -->
           <div class="mobile-action-buttons">
+            <button id="mobile-btn-craft" class="mobile-action-btn btn-craft-mobile">
+              <span class="mobile-action-icon">🔨</span>
+              <span class="mobile-action-label">Craft</span>
+            </button>
             <button id="mobile-btn-action" class="mobile-action-btn btn-interact">
               <span class="mobile-action-icon">✨</span>
               <span id="mobile-action-text" class="mobile-action-label">Interact</span>
@@ -391,9 +432,52 @@ export class HudUI {
       this.togglePartyModal(open);
     };
 
+    // Crafting & Backpack dock buttons
+    const btnCraft = this.container.querySelector('#btn-open-crafting');
+    if (btnCraft) {
+      btnCraft.addEventListener('click', () => {
+        if (this.craftingUI) {
+          this.craftingUI.switchTab('crafting');
+          this.craftingUI.toggle(true);
+        }
+      });
+    }
+
+    const btnPack = this.container.querySelector('#btn-open-backpack');
+    if (btnPack) {
+      btnPack.addEventListener('click', () => {
+        if (this.craftingUI) {
+          this.craftingUI.switchTab('backpack');
+          this.craftingUI.toggle(true);
+        }
+      });
+    }
+
+    // Survival Stats listener
+    if (this.player) {
+      this.player.onStatsChanged = (stats) => {
+        this.updateSurvivalStats(stats);
+      };
+
+      this.player.onRespawned = (msg) => {
+        this.showToast(msg, 'info');
+      };
+    }
+
+    // Hotbar setup
+    this.updateHotbar();
+    if (this.player && this.player.inventorySystem) {
+      this.player.inventorySystem.onChange = () => {
+        this.updateHotbar();
+      };
+    }
+
     this.interaction.onInventoryChanged = (inv) => {
-      this.container.querySelector('#inv-wood-count').textContent = inv.firewood;
-      this.container.querySelector('#inv-fish-count').textContent = inv.fish;
+      // Legacy counts update
+      const woodEl = this.container.querySelector('#inv-wood-count');
+      const fishEl = this.container.querySelector('#inv-fish-count');
+      if (woodEl) woodEl.textContent = inv.firewood;
+      if (fishEl) fishEl.textContent = inv.fish;
     };
 
     // Register Party game state change callback
@@ -527,8 +611,18 @@ export class HudUI {
     window.addEventListener('touchcancel', handleCamEnd, { passive: true });
 
     // 3. Mobile Action Buttons
+    const mobileCraftBtn = this.container.querySelector('#mobile-btn-craft');
     const mobileActionBtn = this.container.querySelector('#mobile-btn-action');
     const mobileJumpBtn = this.container.querySelector('#mobile-btn-jump');
+
+    if (mobileCraftBtn) {
+      mobileCraftBtn.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        if (this.craftingUI) {
+          this.craftingUI.toggle();
+        }
+      });
+    }
 
     mobileActionBtn.addEventListener('touchstart', (e) => {
       e.preventDefault();
@@ -721,6 +815,86 @@ export class HudUI {
       micIcon.textContent = '🔇';
       micLabel.textContent = 'Muted';
     }
+  }
+
+  setCraftingUI(craftingUI) {
+    this.craftingUI = craftingUI;
+  }
+
+  updateSurvivalStats(stats) {
+    if (!stats) return;
+    const barWarmth = this.container.querySelector('#bar-warmth');
+    const textWarmth = this.container.querySelector('#text-warmth');
+    if (barWarmth && textWarmth) {
+      const w = Math.max(0, Math.min(100, stats.warmth));
+      barWarmth.style.width = `${w}%`;
+      textWarmth.textContent = `${w}%`;
+    }
+
+    const barEnergy = this.container.querySelector('#bar-energy');
+    const textEnergy = this.container.querySelector('#text-energy');
+    if (barEnergy && textEnergy) {
+      const e = Math.max(0, Math.min(100, stats.energy));
+      barEnergy.style.width = `${e}%`;
+      textEnergy.textContent = `${e}%`;
+    }
+
+    const barComfort = this.container.querySelector('#bar-comfort');
+    const textComfort = this.container.querySelector('#text-comfort');
+    if (barComfort && textComfort) {
+      const c = Math.max(0, Math.min(100, stats.comfort));
+      barComfort.style.width = `${c}%`;
+      textComfort.textContent = `${c}%`;
+    }
+  }
+
+  updateHotbar() {
+    const container = this.container.querySelector('#hotbar-slots-container');
+    if (!container) return;
+
+    const inv = this.player ? this.player.inventorySystem : null;
+    const hotbarSlots = inv ? inv.hotbar : [];
+    const activeIdx = inv ? inv.activeSlotIndex : 0;
+
+    let html = '';
+    for (let i = 0; i < 9; i++) {
+      const item = hotbarSlots[i];
+      const isActive = (i === activeIdx);
+      const def = item ? (ITEMS[item.id] || null) : null;
+      const icon = def ? def.icon : '';
+      const name = def ? def.name : '';
+      const count = (item && item.count > 1) ? `<span class="hotbar-badge">${item.count}</span>` : '';
+
+      let durBar = '';
+      if (item && def && def.maxDurability && item.durability !== undefined) {
+        const pct = Math.max(0, Math.min(100, Math.round((item.durability / def.maxDurability) * 100)));
+        const barColor = pct > 50 ? '#22c55e' : (pct > 25 ? '#eab308' : '#ef4444');
+        durBar = `<div class="hotbar-durability-track"><div class="hotbar-durability-fill" style="width: ${pct}%; background: ${barColor};"></div></div>`;
+      }
+
+      html += `
+        <div class="hotbar-slot ${isActive ? 'active' : ''} ${item ? 'has-item' : ''}" data-slot-index="${i}" title="${name || `Slot ${i + 1} [Press ${i + 1}]`}">
+          <span class="hotbar-slot-key">${i + 1}</span>
+          ${icon ? `<span class="hotbar-item-icon">${icon}</span>` : ''}
+          ${count}
+          ${durBar}
+        </div>
+      `;
+    }
+
+    container.innerHTML = html;
+
+    // Attach click listeners to select slot
+    container.querySelectorAll('.hotbar-slot').forEach(slot => {
+      slot.addEventListener('click', (e) => {
+        const idx = parseInt(slot.getAttribute('data-slot-index'), 10);
+        if (this.player && this.player.selectHotbarSlot) {
+          this.player.selectHotbarSlot(idx);
+          this.updateHotbar();
+          soundFX.playPop();
+        }
+      });
+    });
   }
 
   showToast(message, type = 'info') {

@@ -11,6 +11,8 @@ import { LobbyUI } from './ui/lobbyUI.js';
 import { HudUI } from './ui/hudUI.js';
 import { soundFX } from './utils/soundFX.js';
 import { EventSyncManager, EVENT_TYPES } from './net/eventSync.js';
+import { InventorySystem } from './systems/inventorySystem.js';
+import { CraftingUI } from './ui/craftingUI.js';
 
 class CampfireGame {
   constructor() {
@@ -31,6 +33,8 @@ class CampfireGame {
     this.interactions = null;
     this.hud = null;
     this.eventSync = null;
+    this.inventorySystem = null;
+    this.craftingUI = null;
 
     this.clock = new THREE.Clock();
     this.isGameRunning = false;
@@ -111,6 +115,20 @@ class CampfireGame {
       this.localPlayerModel
     );
 
+    // Initialize Inventory System & starter survival gear
+    this.inventorySystem = new InventorySystem();
+    this.inventorySystem.addItem('stone_axe', 1);
+    this.inventorySystem.addItem('log', 3);
+    this.inventorySystem.addItem('berry', 4);
+    this.playerController.setInventorySystem(this.inventorySystem);
+
+    this.inventorySystem.onItemUsed = (item) => {
+      this.playerController.eatFood(item.id);
+      if (this.hud) {
+        this.hud.showToast(`Ate tasty ${item.id.replace('_', ' ')}! Restored energy & warmth.`, 'info');
+      }
+    };
+
     // Initial spawn position: near the campfire clearing firmly on the terrain
     const spawnAngle = Math.random() * Math.PI * 2;
     const spawnDist = 4.2 + Math.random() * 2.0;
@@ -144,6 +162,37 @@ class CampfireGame {
       partyGames: this.partyGames,
       dayNight: this.dayNight
     });
+
+    // 4b. Crafting & Backpack Modal UI
+    this.craftingContainer = document.createElement('div');
+    this.craftingContainer.id = 'crafting-root';
+    this.uiRoot.appendChild(this.craftingContainer);
+
+    this.craftingUI = new CraftingUI(this.craftingContainer, {
+      inventory: this.inventorySystem,
+      onCraftRecipe: (recipe) => {
+        const res = this.inventorySystem.craft(recipe);
+        if (res.success) {
+          soundFX.playPop();
+          this.hud.showToast(`🔨 Crafted ${recipe.name}!`, 'info');
+          if (this.eventSync) {
+            this.eventSync.dispatch(EVENT_TYPES.CRAFT, { recipeId: recipe.id });
+          }
+        }
+      },
+      onEatFood: (foodItem) => {
+        this.playerController.eatFood(foodItem.id);
+        this.hud.showToast(`Ate tasty ${foodItem.name}!`, 'info');
+      },
+      isNearCampfire: () => {
+        return this.playerController.position.distanceTo(this.world.campfirePos) < 6.2;
+      },
+      isNearWorkbench: () => {
+        return false;
+      }
+    });
+
+    this.hud.setCraftingUI(this.craftingUI);
 
     // Set Room Name in HUD
     const roomPill = this.hudContainer.querySelector('#hud-room-name');
@@ -349,7 +398,7 @@ class CampfireGame {
 
       // 1. Update Local Player Controller & Physics
       if (this.playerController) {
-        this.playerController.update(delta);
+        this.playerController.update(delta, this.dayNight);
 
         // Campfire audio spatial distance volume
         const distToFire = this.playerController.position.distanceTo(this.world.campfirePos);

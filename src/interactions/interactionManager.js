@@ -46,6 +46,22 @@ export class InteractionManager {
         this.chopNearbyTree(nearby);
         break;
 
+      case 'boulder':
+        this.mineNearbyBoulder(nearby);
+        break;
+
+      case 'berry_bush':
+        this.forageBush(nearby);
+        break;
+
+      case 'mushroom_patch':
+        this.gatherMushroom(nearby);
+        break;
+
+      case 'dropped_resource':
+        this.pickupResource(nearby);
+        break;
+
       case 'dropped_log':
         this.pickupLog(nearby);
         break;
@@ -68,22 +84,6 @@ export class InteractionManager {
     }
   }
 
-  toggleCabinDoor() {
-    if (this.eventSync) {
-      this.eventSync.dispatch(EVENT_TYPES.DOOR_TOGGLE, {
-        isOpen: !this.world.cabinDoorOpen
-      });
-    } else {
-      const isOpen = this.world.toggleCabinDoor();
-      if (this.network) {
-        this.network.broadcast({
-          type: 'cabin_door_toggle',
-          isOpen
-        });
-      }
-    }
-  }
-
   chopNearbyTree(treeItem) {
     if (this.player.isSitting) return;
 
@@ -97,8 +97,21 @@ export class InteractionManager {
       }
     }, 700);
 
+    // Check equipped tool for bonus chop damage
+    const inv = this.player.inventorySystem;
+    const activeItem = inv ? inv.getActiveItem() : null;
+    const hasAxe = activeItem && activeItem.id === 'stone_axe';
+    const damage = hasAxe ? 2 : 1;
+
+    if (hasAxe && inv) {
+      inv.damageActiveItem(1);
+    }
+    if (this.player.energy > 3) {
+      this.player.energy = Math.max(0, this.player.energy - 3);
+    }
+
     if (this.eventSync) {
-      this.eventSync.dispatch(EVENT_TYPES.CHOP, { treeId: treeItem.id });
+      this.eventSync.dispatch(EVENT_TYPES.CHOP, { treeId: treeItem.id, damage });
     } else {
       const result = this.world.chopTree(treeItem.id);
       if (!result) return;
@@ -109,20 +122,83 @@ export class InteractionManager {
           treeId: treeItem.id
         });
       }
+    }
+  }
 
-      if (result.felled) {
-        result.logs.forEach(log => {
-          if (this.network) {
-            this.network.broadcast({
-              type: 'log_dropped',
-              logId: log.id,
-              x: log.position.x,
-              y: log.position.y,
-              z: log.position.z
-            });
-          }
-        });
+  mineNearbyBoulder(boulderItem) {
+    if (this.player.isSitting) return;
+
+    // Trigger chop/mine animation swing
+    this.player.model.setAnimation('chop');
+    setTimeout(() => {
+      if (this.player.model.animState === 'chop') {
+        this.player.model.setAnimation('idle');
       }
+    }, 700);
+
+    const inv = this.player.inventorySystem;
+    const activeItem = inv ? inv.getActiveItem() : null;
+    const hasPickaxe = activeItem && activeItem.id === 'pickaxe';
+    const damage = hasPickaxe ? 2 : 1;
+
+    if (hasPickaxe && inv) {
+      inv.damageActiveItem(1);
+    }
+    if (this.player.energy > 3) {
+      this.player.energy = Math.max(0, this.player.energy - 3);
+    }
+
+    const res = this.world.mineBoulder(boulderItem.id, damage);
+    if (this.network) {
+      this.network.broadcast({
+        type: 'boulder_mined',
+        boulderId: boulderItem.id,
+        damage
+      });
+    }
+  }
+
+  forageBush(bushItem) {
+    const success = this.world.harvestBush(bushItem.id);
+    if (success && this.player.inventorySystem) {
+      this.player.inventorySystem.addItem('berry', 2);
+      this.player.inventorySystem.addItem('fiber', 1);
+    }
+    if (this.network) {
+      this.network.broadcast({
+        type: 'bush_harvested',
+        bushId: bushItem.id
+      });
+    }
+  }
+
+  gatherMushroom(shroomItem) {
+    const success = this.world.pickMushroom(shroomItem.id);
+    if (success && this.player.inventorySystem) {
+      this.player.inventorySystem.addItem('mushroom', 2);
+    }
+    if (this.network) {
+      this.network.broadcast({
+        type: 'mushroom_picked',
+        shroomId: shroomItem.id
+      });
+    }
+  }
+
+  pickupResource(resItem) {
+    const inv = this.player.inventorySystem;
+    if (inv) {
+      inv.addItem(resItem.itemId, resItem.count || 1);
+    }
+    this.world.removeGroundResource(resItem.id);
+    soundFX.playPop();
+
+    if (this.network) {
+      this.network.broadcast({
+        type: 'resource_picked',
+        resId: resItem.id,
+        peerId: this.network.myPeerId
+      });
     }
   }
 
@@ -137,6 +213,9 @@ export class InteractionManager {
     } else {
       this.world.removeDroppedLog(logItem.id);
       this.player.inventory.firewood++;
+      if (this.player.inventorySystem) {
+        this.player.inventorySystem.addItem('log', 1);
+      }
       soundFX.playPop();
 
       if (this.onInventoryChanged) this.onInventoryChanged(this.player.inventory);
@@ -152,9 +231,16 @@ export class InteractionManager {
   }
 
   feedCampfire() {
-    if (this.player.inventory.firewood <= 0) return;
+    const inv = this.player.inventorySystem;
+    const hasLog = inv ? inv.hasItem('log', 1) : (this.player.inventory.firewood > 0);
+    if (!hasLog) return;
 
-    this.player.inventory.firewood--;
+    if (inv && inv.hasItem('log', 1)) {
+      inv.removeItem('log', 1);
+    }
+    if (this.player.inventory.firewood > 0) {
+      this.player.inventory.firewood--;
+    }
     if (this.onInventoryChanged) this.onInventoryChanged(this.player.inventory);
 
     if (this.eventSync) {
@@ -251,6 +337,9 @@ export class InteractionManager {
         const weight = (fishType.minWeight + Math.random() * (fishType.maxWeight - fishType.minWeight)).toFixed(1);
 
         this.player.inventory.fish++;
+        if (this.player.inventorySystem) {
+          this.player.inventorySystem.addItem('fish_raw', 1);
+        }
         if (this.onInventoryChanged) this.onInventoryChanged(this.player.inventory);
 
         const announcement = `🎣 Reeled in a ${fishType.name} (${weight}kg)! [${fishType.rarity}]`;

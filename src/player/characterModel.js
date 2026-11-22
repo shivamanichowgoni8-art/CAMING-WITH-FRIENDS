@@ -312,7 +312,7 @@ export class CharacterModel {
   }
 
   buildTools() {
-    // Axe (attached to right arm, hidden unless chopping)
+    // 1. Axe (attached to right arm)
     this.axeGroup = new THREE.Group();
     this.axeGroup.position.set(0, -0.5, 0.1);
     this.axeGroup.rotation.x = Math.PI / 2;
@@ -330,7 +330,44 @@ export class CharacterModel {
     this.rightArm.add(this.axeGroup);
     this.axeGroup.visible = false;
 
-    // Fishing Rod (attached to right arm, hidden unless fishing)
+    // 2. Pickaxe (attached to right arm)
+    this.pickaxeGroup = new THREE.Group();
+    this.pickaxeGroup.position.set(0, -0.5, 0.1);
+    this.pickaxeGroup.rotation.x = Math.PI / 2;
+
+    const pickHandle = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.028, 0.85, 5), handleMat);
+    this.pickaxeGroup.add(pickHandle);
+
+    const pickHeadGeo = new THREE.ConeGeometry(0.08, 0.55, 4);
+    pickHeadGeo.rotateZ(Math.PI / 2);
+    const pickHead = new THREE.Mesh(pickHeadGeo, bladeMat);
+    pickHead.position.set(0, 0.35, 0.02);
+    this.pickaxeGroup.add(pickHead);
+    this.rightArm.add(this.pickaxeGroup);
+    this.pickaxeGroup.visible = false;
+
+    // 3. Torch (attached to right arm, with soft local light)
+    this.torchGroup = new THREE.Group();
+    this.torchGroup.position.set(0, -0.4, 0.15);
+    this.torchGroup.rotation.x = 0.3;
+
+    const torchHandle = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.03, 0.55, 5), handleMat);
+    this.torchGroup.add(torchHandle);
+
+    const torchFlameGeo = new THREE.DodecahedronGeometry(0.09);
+    const torchFlameMat = new THREE.MeshBasicMaterial({ color: 0xf59e0b });
+    const torchFlame = new THREE.Mesh(torchFlameGeo, torchFlameMat);
+    torchFlame.position.set(0, 0.3, 0);
+    this.torchGroup.add(torchFlame);
+
+    this.torchLight = new THREE.PointLight(0xffa040, 1.2, 8, 1.5);
+    this.torchLight.position.set(0, 0.35, 0);
+    this.torchGroup.add(this.torchLight);
+
+    this.rightArm.add(this.torchGroup);
+    this.torchGroup.visible = false;
+
+    // 4. Fishing Rod (attached to right arm)
     this.rodGroup = new THREE.Group();
     this.rodGroup.position.set(0, -0.5, 0.1);
     this.rodGroup.rotation.x = -Math.PI / 4;
@@ -351,7 +388,7 @@ export class CharacterModel {
     this.rightArm.add(this.rodGroup);
     this.rodGroup.visible = false;
 
-    // Carried Log (held in front with two hands when carrying firewood)
+    // 5. Carried Log (held in front with two hands)
     this.logCarryGroup = new THREE.Group();
     const logGeo = new THREE.CylinderGeometry(0.1, 0.1, 0.6, 6);
     logGeo.rotateZ(Math.PI / 2);
@@ -361,6 +398,32 @@ export class CharacterModel {
     this.logCarryGroup.position.set(0, 0.1, 0.35);
     this.torso.add(this.logCarryGroup);
     this.logCarryGroup.visible = false;
+  }
+
+  updateHeldItem(itemId) {
+    if (this.axeGroup) this.axeGroup.visible = false;
+    if (this.pickaxeGroup) this.pickaxeGroup.visible = false;
+    if (this.torchGroup) this.torchGroup.visible = false;
+    if (this.rodGroup) this.rodGroup.visible = false;
+    if (this.logCarryGroup) this.logCarryGroup.visible = false;
+
+    switch (itemId) {
+      case 'stone_axe':
+        if (this.axeGroup) this.axeGroup.visible = true;
+        break;
+      case 'pickaxe':
+        if (this.pickaxeGroup) this.pickaxeGroup.visible = true;
+        break;
+      case 'torch':
+        if (this.torchGroup) this.torchGroup.visible = true;
+        break;
+      case 'fishing_rod':
+        if (this.rodGroup) this.rodGroup.visible = true;
+        break;
+      case 'log':
+        if (this.logCarryGroup) this.logCarryGroup.visible = true;
+        break;
+    }
   }
 
   buildNametag() {

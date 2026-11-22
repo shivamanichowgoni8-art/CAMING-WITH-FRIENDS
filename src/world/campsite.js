@@ -14,6 +14,10 @@ export class CampsiteWorld {
     this.walkableObjects = []; // terrain, dock planks, cabin floor, porch, steps
     this.trees = [];
     this.droppedLogs = [];
+    this.boulders = []; // Mineable stone/flint boulders
+    this.berryBushes = []; // Foragable berry bushes
+    this.mushrooms = []; // Foragable mushroom patches
+    this.droppedItems = []; // Universal dropped item entities
     this.campfireLevel = 1.0; // 0.5 to 2.5 (fed with firewood)
     this.campfireTargetLevel = 1.0;
 
@@ -981,11 +985,23 @@ export class CampsiteWorld {
       this.scene.remove(t.group);
     });
     this.trees = [];
-    this.interactables = this.interactables.filter(i => i.type !== 'tree');
-    this.colliders = this.colliders.filter(c => !c.isTreeCollider);
 
-    // Rebuild forest with new seed
+    // Remove existing scenic boulders, bushes, mushrooms
+    this.boulders.forEach(b => this.scene.remove(b.group || b.mesh));
+    this.boulders = [];
+    this.berryBushes.forEach(b => this.scene.remove(b.group));
+    this.berryBushes = [];
+    this.mushrooms.forEach(m => this.scene.remove(m.group));
+    this.mushrooms = [];
+
+    this.interactables = this.interactables.filter(i => 
+      i.type !== 'tree' && i.type !== 'boulder' && i.type !== 'berry_bush' && i.type !== 'mushroom_patch'
+    );
+    this.colliders = this.colliders.filter(c => !c.isTreeCollider && !c.isBoulderCollider);
+
+    // Rebuild forest and resources with new seed
     this.buildForest();
+    this.buildScenicDecorations();
   }
 
   buildForest() {
@@ -1100,18 +1116,33 @@ export class CampsiteWorld {
       tree.group.visible = false;
       soundFX.playPop();
 
-      // Spawn 2-3 firewood logs on the ground
+      // Spawn 2 firewood logs plus sticks and chance of seed
       const dropped = [];
-      const numLogs = 2 + Math.floor(Math.random() * 2);
+      const numLogs = 2;
       for (let i = 0; i < numLogs; i++) {
         const offsetAngle = (i / numLogs) * Math.PI * 2;
         const lx = tree.basePos.x + Math.cos(offsetAngle) * 1.4;
         const lz = tree.basePos.z + Math.sin(offsetAngle) * 1.4;
         const ly = this.getTerrainHeight(lx, lz);
-
         const logItem = this.spawnFirewoodLog(lx, ly, lz);
         dropped.push(logItem);
       }
+
+      // Bonus sticks & seed
+      const numSticks = 1 + Math.floor(Math.random() * 2);
+      for (let i = 0; i < numSticks; i++) {
+        const sx = tree.basePos.x + (Math.random() - 0.5) * 2.2;
+        const sz = tree.basePos.z + (Math.random() - 0.5) * 2.2;
+        const sy = this.getTerrainHeight(sx, sz);
+        this.spawnGroundResource('stick', sx, sy, sz, 1);
+      }
+      if (Math.random() < 0.45) {
+        const sx = tree.basePos.x + (Math.random() - 0.5) * 1.8;
+        const sz = tree.basePos.z + (Math.random() - 0.5) * 1.8;
+        const sy = this.getTerrainHeight(sx, sz);
+        this.spawnGroundResource('tree_seed', sx, sy, sz, 1);
+      }
+
       return { felled: true, logs: dropped };
     }
 
@@ -1182,34 +1213,341 @@ export class CampsiteWorld {
     }
   }
 
+  // Universal Ground Resource Drop (sticks, stones, flint, seeds, berries, mushrooms)
+  spawnGroundResource(itemId, x, y, z, count = 1) {
+    const groundY = this.getGroundHeight(x, z);
+    const group = new THREE.Group();
+    group.position.set(x, groundY + 0.1, z);
+
+    let meshGeo;
+    let meshMat;
+
+    switch (itemId) {
+      case 'stick':
+        meshGeo = new THREE.CylinderGeometry(0.04, 0.04, 0.45, 4);
+        meshGeo.rotateZ(Math.PI / 3);
+        meshMat = new THREE.MeshLambertMaterial({ color: 0x854d0e, flatShading: true });
+        break;
+      case 'stone':
+        meshGeo = new THREE.DodecahedronGeometry(0.14);
+        meshMat = new THREE.MeshLambertMaterial({ color: 0x64748b, flatShading: true });
+        break;
+      case 'flint':
+        meshGeo = new THREE.ConeGeometry(0.12, 0.22, 4);
+        meshMat = new THREE.MeshLambertMaterial({ color: 0x334155, flatShading: true });
+        break;
+      case 'coal':
+        meshGeo = new THREE.DodecahedronGeometry(0.13);
+        meshMat = new THREE.MeshLambertMaterial({ color: 0x1e293b, flatShading: true });
+        break;
+      case 'tree_seed':
+        meshGeo = new THREE.SphereGeometry(0.08, 5, 5);
+        meshMat = new THREE.MeshLambertMaterial({ color: 0x15803d, flatShading: true });
+        break;
+      case 'berry':
+        meshGeo = new THREE.SphereGeometry(0.09, 6, 6);
+        meshMat = new THREE.MeshLambertMaterial({ color: 0xe11d48, flatShading: true });
+        break;
+      case 'mushroom':
+        meshGeo = new THREE.ConeGeometry(0.14, 0.16, 6);
+        meshMat = new THREE.MeshLambertMaterial({ color: 0xa855f7, flatShading: true });
+        break;
+      default:
+        meshGeo = new THREE.BoxGeometry(0.2, 0.2, 0.2);
+        meshMat = new THREE.MeshLambertMaterial({ color: 0xf59e0b, flatShading: true });
+        break;
+    }
+
+    const mesh = new THREE.Mesh(meshGeo, meshMat);
+    mesh.castShadow = true;
+    group.add(mesh);
+
+    // Subtle beacon ring
+    const ring = new THREE.Mesh(
+      new THREE.RingGeometry(0.15, 0.28, 8),
+      new THREE.MeshBasicMaterial({ color: 0x38bdf8, side: THREE.DoubleSide, transparent: true, opacity: 0.55 })
+    );
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.y = 0.02;
+    group.add(ring);
+
+    this.scene.add(group);
+
+    const resId = `drop_${itemId}_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`;
+    const resourceObj = {
+      id: resId,
+      itemId,
+      count,
+      group,
+      position: new THREE.Vector3(x, groundY + 0.1, z),
+      time: 0
+    };
+    this.droppedItems.push(resourceObj);
+
+    // Register interactable
+    this.interactables.push({
+      type: 'dropped_resource',
+      id: resId,
+      itemId,
+      count,
+      resourceRef: resourceObj,
+      name: `${count}x ${itemId.replace('_', ' ')}`,
+      position: resourceObj.position,
+      radius: 1.8,
+      actionText: `Pick up ${itemId.replace('_', ' ')}`
+    });
+
+    return resourceObj;
+  }
+
+  removeGroundResource(resId) {
+    const idx = this.droppedItems.findIndex(i => i.id === resId);
+    if (idx !== -1) {
+      const item = this.droppedItems[idx];
+      this.scene.remove(item.group);
+      this.droppedItems.splice(idx, 1);
+    }
+    const intIdx = this.interactables.findIndex(i => i.id === resId);
+    if (intIdx !== -1) {
+      this.interactables.splice(intIdx, 1);
+    }
+  }
+
   boostCampfire(amount = 0.5) {
     this.campfireTargetLevel = Math.min(2.8, this.campfireTargetLevel + amount);
     soundFX.playPop();
   }
 
   buildScenicDecorations() {
-    // Scattered low-poly granite boulders embedded flush in terrain (seeded)
-    const rockMat = new THREE.MeshLambertMaterial({ color: 0x78716c, flatShading: true });
     const rockPRNG = this.prng.fork('boulders');
-    for (let i = 0; i < 25; i++) {
-      const rx = (rockPRNG.next() - 0.5) * 90;
-      const rz = (rockPRNG.next() - 0.5) * 90;
-      // Don't place rocks directly in lake or center fire
-      if (Math.sqrt(rx * rx + rz * rz) > 4 && Math.sqrt((rx - 28) ** 2 + (rz - 22) ** 2) > 22) {
-        const ry = this.getGroundHeight(rx, rz);
-        const rockScale = 0.5 + rockPRNG.next() * 1.2;
-        const rockGeo = new THREE.DodecahedronGeometry(rockScale, 0);
-        const rock = new THREE.Mesh(rockGeo, rockMat);
-        rock.position.set(rx, ry + rockScale * 0.25, rz);
-        rock.rotation.set(rockPRNG.next() * Math.PI, rockPRNG.next() * Math.PI, rockPRNG.next() * Math.PI);
-        rock.castShadow = true;
-        this.scene.add(rock);
+    const rockMat = new THREE.MeshLambertMaterial({ color: 0x78716c, flatShading: true });
+    const bushMat = new THREE.MeshLambertMaterial({ color: 0x166534, flatShading: true });
+    const berryMat = new THREE.MeshLambertMaterial({ color: 0xe11d48, flatShading: true });
+    const shroomCapMat = new THREE.MeshLambertMaterial({ color: 0x9333ea, flatShading: true });
+    const shroomStemMat = new THREE.MeshLambertMaterial({ color: 0xf1f5f9, flatShading: true });
 
-        if (rockScale > 0.9) {
-          this.colliders.push({ x: rx, z: rz, radius: rockScale * 0.8 });
+    // 1. Mineable Boulders (20 boulders)
+    for (let i = 0; i < 20; i++) {
+      const rx = (rockPRNG.next() - 0.5) * 95;
+      const rz = (rockPRNG.next() - 0.5) * 95;
+      // Keep clear of lake center and campfire
+      if (Math.sqrt(rx * rx + rz * rz) > 4.5 && Math.sqrt((rx - 28) ** 2 + (rz - 22) ** 2) > 22) {
+        const ry = this.getGroundHeight(rx, rz);
+        const rockScale = 0.7 + rockPRNG.next() * 0.9;
+
+        const rockGroup = new THREE.Group();
+        rockGroup.position.set(rx, ry + rockScale * 0.25, rz);
+
+        const rockGeo = new THREE.DodecahedronGeometry(rockScale, 0);
+        const rockMesh = new THREE.Mesh(rockGeo, rockMat);
+        rockMesh.rotation.set(rockPRNG.next() * Math.PI, rockPRNG.next() * Math.PI, rockPRNG.next() * Math.PI);
+        rockMesh.castShadow = true;
+        rockMesh.receiveShadow = true;
+        rockGroup.add(rockMesh);
+
+        this.scene.add(rockGroup);
+
+        const boulderId = `boulder_${i}`;
+        const boulderObj = {
+          id: boulderId,
+          group: rockGroup,
+          mesh: rockMesh,
+          position: new THREE.Vector3(rx, ry, rz),
+          health: 4,
+          maxHealth: 4,
+          isMined: false,
+          respawnTimer: 0
+        };
+        this.boulders.push(boulderObj);
+
+        this.interactables.push({
+          type: 'boulder',
+          id: boulderId,
+          boulderRef: boulderObj,
+          name: 'Granite Boulder',
+          position: boulderObj.position,
+          radius: 2.2,
+          actionText: 'Mine Boulder [Pickaxe]'
+        });
+
+        const coll = { x: rx, z: rz, radius: rockScale * 0.75, isBoulderCollider: true };
+        this.colliders.push(coll);
+      }
+    }
+
+    // 2. Foragable Berry Bushes (14 bushes)
+    const bushPRNG = this.prng.fork('bushes');
+    for (let i = 0; i < 14; i++) {
+      const bx = (bushPRNG.next() - 0.5) * 80;
+      const bz = (bushPRNG.next() - 0.5) * 80;
+      if (Math.sqrt(bx * bx + bz * bz) > 5 && Math.sqrt((bx - 28) ** 2 + (bz - 22) ** 2) > 20) {
+        const by = this.getGroundHeight(bx, bz);
+        if (by > 0.2 && by < 11) {
+          const bushGroup = new THREE.Group();
+          bushGroup.position.set(bx, by, bz);
+
+          // Foliage dome
+          const foliageGeo = new THREE.DodecahedronGeometry(0.75, 1);
+          const foliage = new THREE.Mesh(foliageGeo, bushMat);
+          foliage.position.y = 0.55;
+          foliage.castShadow = true;
+          bushGroup.add(foliage);
+
+          // 5-6 red berries on surface
+          const berriesGroup = new THREE.Group();
+          for (let b = 0; b < 6; b++) {
+            const berry = new THREE.Mesh(new THREE.SphereGeometry(0.1, 5, 5), berryMat);
+            const a = (b / 6) * Math.PI * 2;
+            berry.position.set(Math.cos(a) * 0.65, 0.55 + (b % 2) * 0.2, Math.sin(a) * 0.65);
+            berriesGroup.add(berry);
+          }
+          bushGroup.add(berriesGroup);
+
+          this.scene.add(bushGroup);
+
+          const bushId = `bush_${i}`;
+          const bushObj = {
+            id: bushId,
+            group: bushGroup,
+            berriesGroup,
+            position: new THREE.Vector3(bx, by, bz),
+            hasBerries: true,
+            respawnTimer: 0
+          };
+          this.berryBushes.push(bushObj);
+
+          this.interactables.push({
+            type: 'berry_bush',
+            id: bushId,
+            bushRef: bushObj,
+            name: 'Wild Berry Bush',
+            position: bushObj.position,
+            radius: 2.0,
+            actionText: 'Forage Berries'
+          });
         }
       }
     }
+
+    // 3. Foragable Mushroom Patches (10 patches)
+    const shroomPRNG = this.prng.fork('mushrooms');
+    for (let i = 0; i < 10; i++) {
+      const mx = (shroomPRNG.next() - 0.5) * 70;
+      const mz = (shroomPRNG.next() - 0.5) * 70;
+      if (Math.sqrt(mx * mx + mz * mz) > 3.5 && Math.sqrt((mx - 28) ** 2 + (mz - 22) ** 2) > 18) {
+        const my = this.getGroundHeight(mx, mz);
+        if (my > 0.2 && my < 9) {
+          const mGroup = new THREE.Group();
+          mGroup.position.set(mx, my, mz);
+
+          // 2-3 mushrooms in cluster
+          for (let s = 0; s < 3; s++) {
+            const ox = (s - 1) * 0.22;
+            const oz = (s === 1 ? 0.15 : -0.1);
+            const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.05, 0.22, 5), shroomStemMat);
+            stem.position.set(ox, 0.11, oz);
+            const cap = new THREE.Mesh(new THREE.ConeGeometry(0.14, 0.12, 6), shroomCapMat);
+            cap.position.set(ox, 0.22, oz);
+            mGroup.add(stem, cap);
+          }
+
+          this.scene.add(mGroup);
+
+          const shroomId = `shroom_${i}`;
+          const shroomObj = {
+            id: shroomId,
+            group: mGroup,
+            position: new THREE.Vector3(mx, my, mz),
+            picked: false,
+            respawnTimer: 0
+          };
+          this.mushrooms.push(shroomObj);
+
+          this.interactables.push({
+            type: 'mushroom_patch',
+            id: shroomId,
+            shroomRef: shroomObj,
+            name: 'Forest Mushrooms',
+            position: shroomObj.position,
+            radius: 1.8,
+            actionText: 'Gather Mushrooms'
+          });
+        }
+      }
+    }
+  }
+
+  mineBoulder(boulderId, damage = 1) {
+    const boulder = this.boulders.find(b => b.id === boulderId);
+    if (!boulder || boulder.isMined) return null;
+
+    boulder.health -= damage;
+    soundFX.playPop();
+
+    if (boulder.health <= 0) {
+      boulder.isMined = true;
+      boulder.respawnTimer = 60; // 60s respawn
+      boulder.group.visible = false;
+
+      // Drop 2-3 stones + chance of flint + chance of coal
+      const drops = [];
+      const numStones = 2 + Math.floor(Math.random() * 2);
+      for (let i = 0; i < numStones; i++) {
+        const sx = boulder.position.x + (Math.random() - 0.5) * 1.5;
+        const sz = boulder.position.z + (Math.random() - 0.5) * 1.5;
+        const sy = this.getTerrainHeight(sx, sz);
+        this.spawnGroundResource('stone', sx, sy, sz, 1);
+      }
+      if (Math.random() < 0.45) {
+        const fx = boulder.position.x + (Math.random() - 0.5) * 1.2;
+        const fz = boulder.position.z + (Math.random() - 0.5) * 1.2;
+        const fy = this.getTerrainHeight(fx, fz);
+        this.spawnGroundResource('flint', fx, fy, fz, 1);
+      }
+      if (Math.random() < 0.35) {
+        const cx = boulder.position.x + (Math.random() - 0.5) * 1.2;
+        const cz = boulder.position.z + (Math.random() - 0.5) * 1.2;
+        const cy = this.getTerrainHeight(cx, cz);
+        this.spawnGroundResource('coal', cx, cy, cz, 1);
+      }
+
+      return { mined: true };
+    }
+
+    return { mined: false, healthRemaining: boulder.health };
+  }
+
+  harvestBush(bushId) {
+    const bush = this.berryBushes.find(b => b.id === bushId);
+    if (!bush || !bush.hasBerries) return false;
+
+    bush.hasBerries = false;
+    bush.respawnTimer = 50;
+    if (bush.berriesGroup) bush.berriesGroup.visible = false;
+    soundFX.playPop();
+
+    // Drop berries and fiber
+    const bx = bush.position.x;
+    const bz = bush.position.z;
+    const by = bush.position.y;
+    this.spawnGroundResource('berry', bx + 0.5, by, bz, 2);
+    this.spawnGroundResource('fiber', bx - 0.4, by, bz + 0.3, 1);
+
+    return true;
+  }
+
+  pickMushroom(mushroomId) {
+    const shroom = this.mushrooms.find(m => m.id === mushroomId);
+    if (!shroom || shroom.picked) return false;
+
+    shroom.picked = true;
+    shroom.respawnTimer = 65;
+    shroom.group.visible = false;
+    soundFX.playPop();
+
+    // Drop mushrooms
+    this.spawnGroundResource('mushroom', shroom.position.x, shroom.position.y, shroom.position.z, 2);
+    return true;
   }
 
   // -------------------------------------------------------------
@@ -1224,11 +1562,35 @@ export class CampsiteWorld {
         isChopped: t.isChopped,
         respawnTimer: Math.ceil(t.respawnTimer || 0)
       })),
+      boulders: this.boulders.map(b => ({
+        id: b.id,
+        health: b.health,
+        isMined: b.isMined,
+        respawnTimer: Math.ceil(b.respawnTimer || 0)
+      })),
+      berryBushes: this.berryBushes.map(b => ({
+        id: b.id,
+        hasBerries: b.hasBerries,
+        respawnTimer: Math.ceil(b.respawnTimer || 0)
+      })),
+      mushrooms: this.mushrooms.map(m => ({
+        id: m.id,
+        picked: m.picked,
+        respawnTimer: Math.ceil(m.respawnTimer || 0)
+      })),
       droppedLogs: this.droppedLogs.map(l => ({
         id: l.id,
         x: l.position.x,
         y: l.position.y,
         z: l.position.z
+      })),
+      droppedItems: this.droppedItems.map(i => ({
+        id: i.id,
+        itemId: i.itemId,
+        count: i.count,
+        x: i.position.x,
+        y: i.position.y,
+        z: i.position.z
       })),
       fireFuel: this.campfireLevel,
       cabinDoorOpen: this.cabinDoorOpen
@@ -1250,6 +1612,40 @@ export class CampsiteWorld {
           tree.isChopped = st.isChopped;
           tree.respawnTimer = st.respawnTimer;
           tree.group.visible = !st.isChopped;
+        }
+      });
+    }
+
+    if (snapshot.boulders && Array.isArray(snapshot.boulders)) {
+      snapshot.boulders.forEach(sb => {
+        const boulder = this.boulders.find(b => b.id === sb.id);
+        if (boulder) {
+          boulder.health = sb.health;
+          boulder.isMined = sb.isMined;
+          boulder.respawnTimer = sb.respawnTimer;
+          boulder.group.visible = !sb.isMined;
+        }
+      });
+    }
+
+    if (snapshot.berryBushes && Array.isArray(snapshot.berryBushes)) {
+      snapshot.berryBushes.forEach(sb => {
+        const bush = this.berryBushes.find(b => b.id === sb.id);
+        if (bush) {
+          bush.hasBerries = sb.hasBerries;
+          bush.respawnTimer = sb.respawnTimer;
+          if (bush.berriesGroup) bush.berriesGroup.visible = sb.hasBerries;
+        }
+      });
+    }
+
+    if (snapshot.mushrooms && Array.isArray(snapshot.mushrooms)) {
+      snapshot.mushrooms.forEach(sm => {
+        const shroom = this.mushrooms.find(m => m.id === sm.id);
+        if (shroom) {
+          shroom.picked = sm.picked;
+          shroom.respawnTimer = sm.respawnTimer;
+          shroom.group.visible = !sm.picked;
         }
       });
     }
@@ -1390,12 +1786,54 @@ export class CampsiteWorld {
       }
     });
 
-    // 9. Dropped logs halo pulse
+    // 9. Boulder respawn timers
+    this.boulders.forEach(boulder => {
+      if (boulder.isMined && boulder.respawnTimer > 0) {
+        boulder.respawnTimer -= delta;
+        if (boulder.respawnTimer <= 0) {
+          boulder.isMined = false;
+          boulder.health = boulder.maxHealth || 4;
+          boulder.group.visible = true;
+        }
+      }
+    });
+
+    // 10. Berry Bush respawn timers
+    this.berryBushes.forEach(bush => {
+      if (!bush.hasBerries && bush.respawnTimer > 0) {
+        bush.respawnTimer -= delta;
+        if (bush.respawnTimer <= 0) {
+          bush.hasBerries = true;
+          if (bush.berriesGroup) bush.berriesGroup.visible = true;
+        }
+      }
+    });
+
+    // 11. Mushroom patch respawn timers
+    this.mushrooms.forEach(shroom => {
+      if (shroom.picked && shroom.respawnTimer > 0) {
+        shroom.respawnTimer -= delta;
+        if (shroom.respawnTimer <= 0) {
+          shroom.picked = false;
+          shroom.group.visible = true;
+        }
+      }
+    });
+
+    // 12. Dropped logs & items halo pulse & hover
     this.droppedLogs.forEach(log => {
       log.time += delta;
       if (log.halo) {
         log.halo.material.opacity = 0.4 + Math.sin(log.time * 4) * 0.3;
         log.halo.rotation.z += delta * 0.5;
+      }
+    });
+
+    this.droppedItems.forEach(item => {
+      item.time += delta;
+      if (item.group) {
+        item.group.rotation.y += delta * 1.5;
+        item.group.position.y = (this.getGroundHeight(item.position.x, item.position.z) + 0.12) + Math.sin(item.time * 3) * 0.05;
       }
     });
   }

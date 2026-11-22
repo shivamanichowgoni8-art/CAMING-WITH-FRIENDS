@@ -19,6 +19,14 @@ export class PlayerController {
       fish: 0
     };
 
+    // Survival Stats (The Living Valley)
+    this.warmth = 100;
+    this.energy = 100;
+    this.comfort = 100;
+    this.inventorySystem = null; // Connected InventorySystem instance
+    this.onStatsChanged = null;
+    this.onRespawned = null;
+
     // Camera control angles
     this.cameraDistance = 5.2;
     this.cameraHeight = 1.9;
@@ -93,6 +101,17 @@ export class PlayerController {
         case 'Escape':
           if (this.isSitting) this.standUp();
           break;
+
+        // Hotbar selection 1-9
+        case 'Digit1': this.selectHotbarSlot(0); break;
+        case 'Digit2': this.selectHotbarSlot(1); break;
+        case 'Digit3': this.selectHotbarSlot(2); break;
+        case 'Digit4': this.selectHotbarSlot(3); break;
+        case 'Digit5': this.selectHotbarSlot(4); break;
+        case 'Digit6': this.selectHotbarSlot(5); break;
+        case 'Digit7': this.selectHotbarSlot(6); break;
+        case 'Digit8': this.selectHotbarSlot(7); break;
+        case 'Digit9': this.selectHotbarSlot(8); break;
       }
     });
 
@@ -244,7 +263,16 @@ export class PlayerController {
 
     // Determine current speed
     let speed = 5.2;
-    if (this.keys.sprint) speed = 8.5;
+    const canSprint = this.keys.sprint && this.energy > 5 && !this.isSwimming && hasMoveInput;
+    if (canSprint) {
+      speed = 8.5;
+      this.energy = Math.max(0, this.energy - delta * 4.8);
+    } else if (this.isSitting) {
+      this.energy = Math.min(100, this.energy + delta * 6.0);
+    } else {
+      this.energy = Math.min(100, this.energy + delta * 1.2);
+    }
+
     if (this.isSwimming) speed = 3.8;
 
     // Camera forward and right projected onto ground plane (XZ)
@@ -367,6 +395,131 @@ export class PlayerController {
 
     this.model.update(delta);
     this.updateCamera(delta);
+    this.tickSurvivalStats(delta, dayNight);
+  }
+
+  setInventorySystem(invSystem) {
+    this.inventorySystem = invSystem;
+    if (this.inventorySystem) {
+      this.inventorySystem.onActiveSlotChanged = (item) => {
+        if (this.model && this.model.updateHeldItem) {
+          this.model.updateHeldItem(item ? item.id : null);
+        }
+      };
+      // Init held item
+      const cur = this.inventorySystem.getActiveItem();
+      if (this.model && this.model.updateHeldItem) {
+        this.model.updateHeldItem(cur ? cur.id : null);
+      }
+    }
+  }
+
+  selectHotbarSlot(index) {
+    if (this.inventorySystem) {
+      this.inventorySystem.setActiveSlot(index);
+      const item = this.inventorySystem.getActiveItem();
+      if (this.model && this.model.updateHeldItem) {
+        this.model.updateHeldItem(item ? item.id : null);
+      }
+    }
+  }
+
+  eatFood(foodItemId) {
+    switch (foodItemId) {
+      case 'berry':
+        this.energy = Math.min(100, this.energy + 12);
+        this.warmth = Math.min(100, this.warmth + 4);
+        break;
+      case 'mushroom':
+        this.energy = Math.min(100, this.energy + 10);
+        break;
+      case 'fish_cooked':
+        this.energy = Math.min(100, this.energy + 40);
+        this.warmth = Math.min(100, this.warmth + 22);
+        this.comfort = Math.min(100, this.comfort + 18);
+        break;
+      case 'roasted_mushroom':
+        this.energy = Math.min(100, this.energy + 28);
+        this.warmth = Math.min(100, this.warmth + 16);
+        this.comfort = Math.min(100, this.comfort + 12);
+        break;
+      case 'berry_tea':
+        this.warmth = Math.min(100, this.warmth + 35);
+        this.energy = Math.min(100, this.energy + 22);
+        this.comfort = Math.min(100, this.comfort + 28);
+        break;
+      default:
+        this.energy = Math.min(100, this.energy + 8);
+        break;
+    }
+    if (this.onStatsChanged) {
+      this.onStatsChanged({ warmth: this.warmth, energy: this.energy, comfort: this.comfort });
+    }
+  }
+
+  tickSurvivalStats(delta, dayNight) {
+    // 1. Proximity to heat sources & shelter
+    const distFire = this.world && this.world.campfirePos
+      ? this.position.distanceTo(this.world.campfirePos)
+      : 999;
+    const distCabin = Math.sqrt((this.position.x - (-9.2)) ** 2 + (this.position.z - (-6.8)) ** 2);
+
+    const isNearCampfire = distFire < 5.8;
+    const isInsideCabin = distCabin < 4.2;
+
+    const activeItem = this.inventorySystem ? this.inventorySystem.getActiveItem() : null;
+    const isHoldingTorch = activeItem && activeItem.id === 'torch';
+    const isNight = dayNight ? (dayNight.cycleTimer >= dayNight.dayDuration) : false;
+
+    // Warmth updates
+    if (isNearCampfire) {
+      const heatMultiplier = (this.world.campfireLevel || 1.0);
+      this.warmth = Math.min(100, this.warmth + delta * 6.5 * heatMultiplier);
+    } else if (isInsideCabin) {
+      this.warmth = Math.min(100, this.warmth + delta * 3.8);
+    } else if (isHoldingTorch) {
+      this.warmth = Math.min(100, this.warmth + delta * 1.5);
+    }
+
+    if (this.isSwimming) {
+      this.warmth = Math.max(0, this.warmth - delta * 4.2);
+    } else if (isNight && !isNearCampfire && !isInsideCabin && !isHoldingTorch) {
+      this.warmth = Math.max(0, this.warmth - delta * 1.4);
+    }
+
+    // Comfort updates
+    if (this.isSitting) {
+      this.comfort = Math.min(100, this.comfort + delta * 5.0);
+    } else if (isInsideCabin) {
+      this.comfort = Math.min(100, this.comfort + delta * 3.2);
+    } else if (this.isSwimming || (isNight && !isNearCampfire && !isInsideCabin)) {
+      this.comfort = Math.max(0, this.comfort - delta * 0.8);
+    }
+
+    // Blackout / Cozy Respawn when freezing cold
+    if (this.warmth <= 0) {
+      this.respawnAtCampfire();
+    }
+
+    if (this.onStatsChanged) {
+      this.onStatsChanged({
+        warmth: Math.round(this.warmth),
+        energy: Math.round(this.energy),
+        comfort: Math.round(this.comfort)
+      });
+    }
+  }
+
+  respawnAtCampfire() {
+    const groundY = this.world.getGroundHeight(0, 4.5);
+    this.position.set(0, groundY, 4.5);
+    this.velocity.set(0, 0, 0);
+    this.warmth = 65;
+    this.energy = 60;
+    this.comfort = 50;
+    if (this.onRespawned) {
+      this.onRespawned('🔥 Warmed up and revived by the cozy campfire embers!');
+    }
   }
 
   updateCamera(delta) {
