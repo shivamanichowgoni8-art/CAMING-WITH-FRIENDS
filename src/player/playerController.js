@@ -226,7 +226,7 @@ export class PlayerController {
     this.model.setAnimation('idle');
   }
 
-  update(delta) {
+  update(delta, dayNight = null) {
     // Laptop Keyboard Orbit Look (Arrow keys & I/J/K/L)
     const keyLookSpeed = 2.2;
     if (this.lookKeys.left)  this.yaw -= keyLookSpeed * delta;
@@ -240,6 +240,7 @@ export class PlayerController {
       this.model.root.position.copy(this.position);
       this.model.update(delta);
       this.updateCamera(delta);
+      this.tickSurvivalStats(delta, dayNight);
       return;
     }
 

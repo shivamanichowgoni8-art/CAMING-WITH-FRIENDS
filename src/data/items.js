@@ -221,7 +221,16 @@ export const ITEMS = {
 };
 
 export function getItem(id) {
-  return ITEMS[id] || null;
+  if (!id) {
+    console.warn('[Items] getItem called with empty or undefined ID');
+    return null;
+  }
+  const item = ITEMS[id];
+  if (!item) {
+    console.warn(`[Items] Item ID "${id}" not found in ITEMS registry`);
+    return null;
+  }
+  return item;
 }
 
 export function getItemsByCategory(category) {

@@ -274,27 +274,29 @@ export class CampsiteWorld {
     });
 
     // Reeds & Water Lilies
+    const reedsPRNG = this.prng.fork('reeds');
     for (let i = 0; i < 18; i++) {
       const angle = (i / 18) * Math.PI * 2;
-      const r = 21 + Math.random() * 2.5;
+      const r = 21 + reedsPRNG.next() * 2.5;
       const rx = 28 + Math.cos(angle) * r;
       const rz = 22 + Math.sin(angle) * r;
       const ry = this.getTerrainHeight(rx, rz);
       if (ry < 0.2) {
-        this.createReeds(rx, 0, rz);
+        this.createReeds(rx, 0, rz, reedsPRNG);
       }
     }
   }
 
-  createReeds(x, y, z) {
+  createReeds(x, y, z, prng = null) {
+    const rng = prng || this.prng;
     const reedGroup = new THREE.Group();
     reedGroup.position.set(x, y, z);
     const reedMat = new THREE.MeshLambertMaterial({ color: 0x3d7041, flatShading: true });
     for (let j = 0; j < 5; j++) {
-      const reedGeo = new THREE.CylinderGeometry(0.02, 0.04, 1.2 + Math.random() * 0.8, 4);
+      const reedGeo = new THREE.CylinderGeometry(0.02, 0.04, 1.2 + rng.next() * 0.8, 4);
       const reed = new THREE.Mesh(reedGeo, reedMat);
-      reed.position.set((Math.random() - 0.5) * 0.4, 0.5, (Math.random() - 0.5) * 0.4);
-      reed.rotation.set((Math.random() - 0.5) * 0.2, 0, (Math.random() - 0.5) * 0.2);
+      reed.position.set((rng.next() - 0.5) * 0.4, 0.5, (rng.next() - 0.5) * 0.4);
+      reed.rotation.set((rng.next() - 0.5) * 0.2, 0, (rng.next() - 0.5) * 0.2);
       reedGroup.add(reed);
     }
     this.scene.add(reedGroup);
@@ -307,13 +309,14 @@ export class CampsiteWorld {
     // 1. Fire Pit Stone Ring
     const stoneCount = 14;
     const stoneMat = new THREE.MeshLambertMaterial({ color: 0x555555, flatShading: true });
+    const stonePRNG = this.prng.fork('firepit');
     for (let i = 0; i < stoneCount; i++) {
       const a = (i / stoneCount) * Math.PI * 2;
-      const r = 1.2 + (Math.random() - 0.5) * 0.15;
-      const stoneGeo = new THREE.DodecahedronGeometry(0.22 + Math.random() * 0.08, 0);
+      const r = 1.2 + (stonePRNG.next() - 0.5) * 0.15;
+      const stoneGeo = new THREE.DodecahedronGeometry(0.22 + stonePRNG.next() * 0.08, 0);
       const stone = new THREE.Mesh(stoneGeo, stoneMat);
       stone.position.set(Math.cos(a) * r, 0.1, Math.sin(a) * r);
-      stone.rotation.set(Math.random(), Math.random(), Math.random());
+      stone.rotation.set(stonePRNG.next(), stonePRNG.next(), stonePRNG.next());
       stone.castShadow = true;
       this.campfireGroup.add(stone);
     }
@@ -994,6 +997,14 @@ export class CampsiteWorld {
     this.mushrooms.forEach(m => this.scene.remove(m.group));
     this.mushrooms = [];
 
+    // Clear dropped items and logs on reseed
+    while (this.droppedLogs.length > 0) {
+      this.removeDroppedLog(this.droppedLogs[0].id);
+    }
+    while (this.droppedItems.length > 0) {
+      this.removeGroundResource(this.droppedItems[0].id);
+    }
+
     this.interactables = this.interactables.filter(i => 
       i.type !== 'tree' && i.type !== 'boulder' && i.type !== 'berry_bush' && i.type !== 'mushroom_patch'
     );
@@ -1128,17 +1139,17 @@ export class CampsiteWorld {
         dropped.push(logItem);
       }
 
-      // Bonus sticks & seed
-      const numSticks = 1 + Math.floor(Math.random() * 2);
+      // Bonus sticks & seed (using seeded PRNG)
+      const numSticks = 1 + Math.floor(this.prng.next() * 2);
       for (let i = 0; i < numSticks; i++) {
-        const sx = tree.basePos.x + (Math.random() - 0.5) * 2.2;
-        const sz = tree.basePos.z + (Math.random() - 0.5) * 2.2;
+        const sx = tree.basePos.x + (this.prng.next() - 0.5) * 2.2;
+        const sz = tree.basePos.z + (this.prng.next() - 0.5) * 2.2;
         const sy = this.getTerrainHeight(sx, sz);
         this.spawnGroundResource('stick', sx, sy, sz, 1);
       }
-      if (Math.random() < 0.45) {
-        const sx = tree.basePos.x + (Math.random() - 0.5) * 1.8;
-        const sz = tree.basePos.z + (Math.random() - 0.5) * 1.8;
+      if (this.prng.next() < 0.45) {
+        const sx = tree.basePos.x + (this.prng.next() - 0.5) * 1.8;
+        const sz = tree.basePos.z + (this.prng.next() - 0.5) * 1.8;
         const sy = this.getTerrainHeight(sx, sz);
         this.spawnGroundResource('tree_seed', sx, sy, sz, 1);
       }
@@ -1489,24 +1500,24 @@ export class CampsiteWorld {
       boulder.respawnTimer = 60; // 60s respawn
       boulder.group.visible = false;
 
-      // Drop 2-3 stones + chance of flint + chance of coal
+      // Drop 2-3 stones + chance of flint + chance of coal (using seeded PRNG)
       const drops = [];
-      const numStones = 2 + Math.floor(Math.random() * 2);
+      const numStones = 2 + Math.floor(this.prng.next() * 2);
       for (let i = 0; i < numStones; i++) {
-        const sx = boulder.position.x + (Math.random() - 0.5) * 1.5;
-        const sz = boulder.position.z + (Math.random() - 0.5) * 1.5;
+        const sx = boulder.position.x + (this.prng.next() - 0.5) * 1.5;
+        const sz = boulder.position.z + (this.prng.next() - 0.5) * 1.5;
         const sy = this.getTerrainHeight(sx, sz);
         this.spawnGroundResource('stone', sx, sy, sz, 1);
       }
-      if (Math.random() < 0.45) {
-        const fx = boulder.position.x + (Math.random() - 0.5) * 1.2;
-        const fz = boulder.position.z + (Math.random() - 0.5) * 1.2;
+      if (this.prng.next() < 0.45) {
+        const fx = boulder.position.x + (this.prng.next() - 0.5) * 1.2;
+        const fz = boulder.position.z + (this.prng.next() - 0.5) * 1.2;
         const fy = this.getTerrainHeight(fx, fz);
         this.spawnGroundResource('flint', fx, fy, fz, 1);
       }
-      if (Math.random() < 0.35) {
-        const cx = boulder.position.x + (Math.random() - 0.5) * 1.2;
-        const cz = boulder.position.z + (Math.random() - 0.5) * 1.2;
+      if (this.prng.next() < 0.35) {
+        const cx = boulder.position.x + (this.prng.next() - 0.5) * 1.2;
+        const cz = boulder.position.z + (this.prng.next() - 0.5) * 1.2;
         const cy = this.getTerrainHeight(cx, cz);
         this.spawnGroundResource('coal', cx, cy, cz, 1);
       }
@@ -1653,6 +1664,24 @@ export class CampsiteWorld {
     if (snapshot.fireFuel !== undefined) {
       this.campfireLevel = snapshot.fireFuel;
       this.campfireTargetLevel = snapshot.fireFuel;
+    }
+
+    if (snapshot.droppedLogs && Array.isArray(snapshot.droppedLogs)) {
+      while (this.droppedLogs.length > 0) {
+        this.removeDroppedLog(this.droppedLogs[0].id);
+      }
+      snapshot.droppedLogs.forEach(dl => {
+        this.spawnFirewoodLog(dl.x, dl.y, dl.z);
+      });
+    }
+
+    if (snapshot.droppedItems && Array.isArray(snapshot.droppedItems)) {
+      while (this.droppedItems.length > 0) {
+        this.removeGroundResource(this.droppedItems[0].id);
+      }
+      snapshot.droppedItems.forEach(di => {
+        this.spawnGroundResource(di.itemId, di.x, di.y, di.z, di.count || 1);
+      });
     }
 
     if (snapshot.cabinDoorOpen !== undefined) {

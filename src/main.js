@@ -100,123 +100,161 @@ class CampfireGame {
   }
 
   async startGame({ isHost, roomName, password, playerName, characterId }) {
-    // 1. Initialize Network
-    this.network = new PeerNetworkManager();
-    this.partyGames = new PartyGameManager(this.network);
+    console.log('[Startup] Initializing game session for:', playerName, 'in room:', roomName);
+
+    // 1. Initialize Network & Party Games
+    try {
+      console.log('[Startup] Step 1: Initializing network & party games...');
+      this.network = new PeerNetworkManager();
+      this.partyGames = new PartyGameManager(this.network);
+    } catch (err) {
+      console.error('[Startup] Failed at Step 1 (Network/PartyGames):', err);
+      throw err;
+    }
 
     // 2. Create Local Player Model & Controller
-    this.localPlayerModel = new CharacterModel(characterId, playerName);
-    this.scene.add(this.localPlayerModel.root);
+    try {
+      console.log('[Startup] Step 2: Creating character model & controller...');
+      this.localPlayerModel = new CharacterModel(characterId, playerName);
+      this.scene.add(this.localPlayerModel.root);
 
-    this.playerController = new PlayerController(
-      this.camera,
-      this.renderer.domElement,
-      this.world,
-      this.localPlayerModel
-    );
+      this.playerController = new PlayerController(
+        this.camera,
+        this.renderer.domElement,
+        this.world,
+        this.localPlayerModel
+      );
+    } catch (err) {
+      console.error('[Startup] Failed at Step 2 (PlayerModel/Controller):', err);
+      throw err;
+    }
 
-    // Initialize Inventory System & starter survival gear
-    this.inventorySystem = new InventorySystem();
-    this.inventorySystem.addItem('stone_axe', 1);
-    this.inventorySystem.addItem('log', 3);
-    this.inventorySystem.addItem('berry', 4);
-    this.playerController.setInventorySystem(this.inventorySystem);
+    // 3. Inventory & Starter Survival Gear
+    try {
+      console.log('[Startup] Step 3: Initializing inventory & gear...');
+      this.inventorySystem = new InventorySystem();
+      this.inventorySystem.addItem('stone_axe', 1);
+      this.inventorySystem.addItem('log', 3);
+      this.inventorySystem.addItem('berry', 4);
+      this.playerController.setInventorySystem(this.inventorySystem);
 
-    this.inventorySystem.onItemUsed = (item) => {
-      this.playerController.eatFood(item.id);
-      if (this.hud) {
-        this.hud.showToast(`Ate tasty ${item.id.replace('_', ' ')}! Restored energy & warmth.`, 'info');
-      }
-    };
-
-    // Initial spawn position: near the campfire clearing firmly on the terrain
-    const spawnAngle = Math.random() * Math.PI * 2;
-    const spawnDist = 4.2 + Math.random() * 2.0;
-    const spawnX = Math.cos(spawnAngle) * spawnDist;
-    const spawnZ = Math.sin(spawnAngle) * spawnDist;
-    const spawnY = this.world.getGroundHeight(spawnX, spawnZ);
-    this.playerController.position.set(spawnX, spawnY, spawnZ);
-    this.playerController.isGrounded = true;
-
-    // 3. Interactions Manager
-    this.interactions = new InteractionManager(
-      this.world,
-      this.playerController,
-      this.partyGames,
-      this.network
-    );
-
-    this.playerController.onInteractPressed = () => {
-      this.interactions.triggerInteraction();
-    };
-
-    // 4. HUD UI
-    this.hudContainer = document.createElement('div');
-    this.hudContainer.id = 'hud-root';
-    this.uiRoot.appendChild(this.hudContainer);
-
-    this.hud = new HudUI(this.hudContainer, {
-      network: this.network,
-      player: this.playerController,
-      interaction: this.interactions,
-      partyGames: this.partyGames,
-      dayNight: this.dayNight
-    });
-
-    // 4b. Crafting & Backpack Modal UI
-    this.craftingContainer = document.createElement('div');
-    this.craftingContainer.id = 'crafting-root';
-    this.uiRoot.appendChild(this.craftingContainer);
-
-    this.craftingUI = new CraftingUI(this.craftingContainer, {
-      inventory: this.inventorySystem,
-      onCraftRecipe: (recipe) => {
-        const res = this.inventorySystem.craft(recipe);
-        if (res.success) {
-          soundFX.playPop();
-          this.hud.showToast(`🔨 Crafted ${recipe.name}!`, 'info');
-          if (this.eventSync) {
-            this.eventSync.dispatch(EVENT_TYPES.CRAFT, { recipeId: recipe.id });
-          }
+      this.inventorySystem.onItemUsed = (item) => {
+        this.playerController.eatFood(item.id);
+        if (this.hud) {
+          this.hud.showToast(`Ate tasty ${item.id.replace('_', ' ')}! Restored energy & warmth.`, 'info');
         }
-      },
-      onEatFood: (foodItem) => {
-        this.playerController.eatFood(foodItem.id);
-        this.hud.showToast(`Ate tasty ${foodItem.name}!`, 'info');
-      },
-      isNearCampfire: () => {
-        return this.playerController.position.distanceTo(this.world.campfirePos) < 6.2;
-      },
-      isNearWorkbench: () => {
-        return false;
-      }
-    });
+      };
 
-    this.hud.setCraftingUI(this.craftingUI);
+      // Initial spawn position: near the campfire clearing firmly on the terrain
+      const spawnAngle = Math.random() * Math.PI * 2;
+      const spawnDist = 4.2 + Math.random() * 2.0;
+      const spawnX = Math.cos(spawnAngle) * spawnDist;
+      const spawnZ = Math.sin(spawnAngle) * spawnDist;
+      const spawnY = this.world.getGroundHeight(spawnX, spawnZ);
+      this.playerController.position.set(spawnX, spawnY, spawnZ);
+      this.playerController.isGrounded = true;
+    } catch (err) {
+      console.error('[Startup] Failed at Step 3 (Inventory/Spawn):', err);
+      throw err;
+    }
 
-    // Set Room Name in HUD
-    const roomPill = this.hudContainer.querySelector('#hud-room-name');
-    if (roomPill) roomPill.textContent = roomName;
+    // 4. Interactions Manager & HUD UI
+    try {
+      console.log('[Startup] Step 4: Setting up interactions and HUD...');
+      this.interactions = new InteractionManager(
+        this.world,
+        this.playerController,
+        this.partyGames,
+        this.network
+      );
+
+      this.playerController.onInteractPressed = () => {
+        this.interactions.triggerInteraction();
+      };
+
+      this.hudContainer = document.createElement('div');
+      this.hudContainer.id = 'hud-root';
+      this.uiRoot.appendChild(this.hudContainer);
+
+      this.hud = new HudUI(this.hudContainer, {
+        network: this.network,
+        player: this.playerController,
+        interaction: this.interactions,
+        partyGames: this.partyGames,
+        dayNight: this.dayNight
+      });
+
+      // 4b. Crafting & Backpack Modal UI
+      this.craftingContainer = document.createElement('div');
+      this.craftingContainer.id = 'crafting-root';
+      this.uiRoot.appendChild(this.craftingContainer);
+
+      this.craftingUI = new CraftingUI(this.craftingContainer, {
+        inventory: this.inventorySystem,
+        onCraftRecipe: (recipe) => {
+          const res = this.inventorySystem.craft(recipe);
+          if (res.success) {
+            soundFX.playPop();
+            this.hud.showToast(`🔨 Crafted ${recipe.name}!`, 'info');
+            if (this.eventSync) {
+              this.eventSync.dispatch(EVENT_TYPES.CRAFT, { recipeId: recipe.id });
+            }
+          }
+        },
+        onEatFood: (foodItem) => {
+          this.playerController.eatFood(foodItem.id);
+          this.hud.showToast(`Ate tasty ${foodItem.name}!`, 'info');
+        },
+        isNearCampfire: () => {
+          return this.playerController.position.distanceTo(this.world.campfirePos) < 6.2;
+        },
+        isNearWorkbench: () => {
+          return false;
+        }
+      });
+
+      this.hud.setCraftingUI(this.craftingUI);
+
+      // Set Room Name in HUD
+      const roomPill = this.hudContainer.querySelector('#hud-room-name');
+      if (roomPill) roomPill.textContent = roomName;
+    } catch (err) {
+      console.error('[Startup] Failed at Step 4 (HUD/Crafting):', err);
+      throw err;
+    }
 
     // 5. Connect Network (Host or Join)
-    this.setupNetworkCallbacks();
+    try {
+      console.log('[Startup] Step 5: Connecting network room...');
+      this.setupNetworkCallbacks();
 
-    if (isHost) {
-      await this.network.createRoom(roomName, password, playerName, characterId);
-      this.hud.showToast(`🔥 Campfire room "${roomName}" created! You are the host.`, 'info');
-    } else {
-      await this.network.joinRoom(roomName, password, playerName, characterId);
-      this.hud.showToast(`🎒 Joined room "${roomName}"! Welcome to the campsite.`, 'info');
+      if (isHost) {
+        await this.network.createRoom(roomName, password, playerName, characterId);
+        this.hud.showToast(`🔥 Campfire room "${roomName}" created! You are the host.`, 'info');
+      } else {
+        await this.network.joinRoom(roomName, password, playerName, characterId);
+        this.hud.showToast(`🎒 Joined room "${roomName}"! Welcome to the campsite.`, 'info');
+      }
+    } catch (err) {
+      console.error('[Startup] Failed at Step 5 (Peer Connect):', err);
+      throw err;
     }
 
-    // Initialize Event-Sync architecture & deterministic world seed
-    this.setupEventSync(isHost);
+    // 6. Initialize Event-Sync architecture & deterministic world seed
+    try {
+      console.log('[Startup] Step 6: Initializing EventSync and deterministic seed...');
+      this.setupEventSync(isHost);
 
-    if (this.network.worldSeed) {
-      this.world.reseed(this.network.worldSeed);
+      if (this.network.worldSeed) {
+        this.world.reseed(this.network.worldSeed);
+      }
+
+      this.isGameRunning = true;
+      console.log('[Startup] Game startup completed successfully!');
+    } catch (err) {
+      console.error('[Startup] Failed at Step 6 (EventSync/Reseed):', err);
+      throw err;
     }
-
-    this.isGameRunning = true;
   }
 
   setupEventSync(isHost) {

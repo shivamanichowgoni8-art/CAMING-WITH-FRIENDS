@@ -409,7 +409,15 @@ export class InteractionManager {
     let promptText = null;
 
     if (nearby) {
-      if (nearby.type === 'campfire') {
+      if (nearby.type === 'boulder') {
+        promptText = `Mine Boulder (Health: ${nearby.boulderRef ? nearby.boulderRef.health : 4}/4) [Pickaxe]`;
+      } else if (nearby.type === 'berry_bush') {
+        promptText = nearby.bushRef && !nearby.bushRef.hasBerries ? 'Bush (Berries regrowing...)' : 'Forage Alpine Berries';
+      } else if (nearby.type === 'mushroom_patch') {
+        promptText = nearby.shroomRef && nearby.shroomRef.picked ? 'Mushrooms (Regrowing...)' : 'Gather Forest Mushrooms';
+      } else if (nearby.type === 'dropped_resource') {
+        promptText = nearby.actionText || `Pick up ${nearby.itemId ? nearby.itemId.replace('_', ' ') : 'Resource'}`;
+      } else if (nearby.type === 'campfire') {
         if (this.player.inventory.firewood > 0) {
           promptText = `Add Firewood (${this.player.inventory.firewood} available)`;
         } else {

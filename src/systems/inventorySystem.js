@@ -66,6 +66,10 @@ export class InventorySystem {
 
   // Count total quantity of an item across hotbar & backpack
   getItemCount(itemId) {
+    if (!itemId) {
+      console.warn('[Inventory] getItemCount called with null/undefined itemId');
+      return 0;
+    }
     let total = 0;
     const countIn = (arr) => {
       arr.forEach(slot => {
@@ -78,23 +82,36 @@ export class InventorySystem {
   }
 
   findItemSlot(itemId, container = 'hotbar') {
+    if (!itemId) return -1;
     const arr = container === 'hotbar' ? this.hotbar : this.backpack;
     return arr.findIndex(slot => slot && slot.id === itemId);
   }
 
   hasItem(itemId, count = 1) {
+    if (!itemId) {
+      console.warn('[Inventory] hasItem called with null/undefined itemId');
+      return false;
+    }
     return this.getItemCount(itemId) >= count;
   }
 
   hasIngredients(ingredients) {
-    if (!ingredients || ingredients.length === 0) return true;
-    return ingredients.every(ing => this.hasItem(ing.id, ing.count));
+    if (!ingredients || !Array.isArray(ingredients) || ingredients.length === 0) return true;
+    return ingredients.every(ing => {
+      if (!ing || !ing.id) {
+        console.warn('[Inventory] hasIngredients encountered invalid ingredient entry:', ing);
+        return false;
+      }
+      return this.hasItem(ing.id, ing.count || 1);
+    });
   }
 
   consumeIngredients(ingredients) {
     if (!this.hasIngredients(ingredients)) return false;
     ingredients.forEach(ing => {
-      this.removeItem(ing.id, ing.count);
+      if (ing && ing.id) {
+        this.removeItem(ing.id, ing.count || 1);
+      }
     });
     this.notifyChange();
     return true;

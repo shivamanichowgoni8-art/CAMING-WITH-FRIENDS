@@ -175,6 +175,46 @@ export const RECIPES = [
   }
 ];
 
+import { ITEMS } from './items.js';
+
+export function validateRecipes() {
+  let allValid = true;
+  for (const recipe of RECIPES) {
+    if (!recipe.id || !recipe.output || !recipe.ingredients) {
+      console.warn('[Recipes] Malformed recipe definition:', recipe);
+      allValid = false;
+      continue;
+    }
+    if (!ITEMS[recipe.output.id]) {
+      console.warn(`[Recipes] Recipe "${recipe.id}" has unknown output item ID: "${recipe.output.id}"`);
+      allValid = false;
+    }
+    for (const ing of recipe.ingredients) {
+      if (!ITEMS[ing.id]) {
+        console.warn(`[Recipes] Recipe "${recipe.id}" has unknown ingredient item ID: "${ing.id}"`);
+        allValid = false;
+      }
+    }
+  }
+  return allValid;
+}
+
+// Run validation once at module initialization
+validateRecipes();
+
+export function getRecipe(id) {
+  if (!id) {
+    console.warn('[Recipes] getRecipe called with empty or undefined ID');
+    return null;
+  }
+  const r = RECIPES.find(rec => rec.id === id);
+  if (!r) {
+    console.warn(`[Recipes] Recipe ID "${id}" not found in RECIPES registry`);
+    return null;
+  }
+  return r;
+}
+
 export function getRecipesByCategory(category) {
   if (!category) return RECIPES;
   return RECIPES.filter(r => r.category === category);
